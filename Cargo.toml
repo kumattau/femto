@@ -9,4 +9,11 @@ authors = ["kumattau <kumattau@gmail.com>"]
 description = "femto: minimal editor in terminal"
 license = "MIT"
 
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = true
+
 [dependencies]
