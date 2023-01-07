@@ -18,3 +18,4 @@ strip = true
 
 [dependencies]
 anyhow = "1.0.68"
+crossterm = "0.25.0"
