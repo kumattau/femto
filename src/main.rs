@@ -1,11 +1,18 @@
-use std::io::stdout;
+use std::{io::stdout, path::PathBuf};
 
 use anyhow::Result;
+use clap::Parser;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
+
+#[derive(Debug, Parser)]
+#[clap(name = env!("CARGO_PKG_NAME"), version, author, about)]
+struct Opts {
+    path: PathBuf,
+}
 
 #[derive(Debug, Default)]
 struct Screen;
@@ -30,6 +37,9 @@ impl Screen {
 }
 
 fn main() -> Result<()> {
+    #[allow(unused_variables)]
+    let opts = Opts::parse();
+
     Screen::init()?;
     loop {
         #[allow(clippy::single_match)]
