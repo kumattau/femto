@@ -1,4 +1,8 @@
-use std::{io::stdout, path::PathBuf};
+use std::{
+    fs::File,
+    io::stdout,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 use clap::Parser;
@@ -7,11 +11,29 @@ use crossterm::{
     execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use ropey::Rope;
 
 #[derive(Debug, Parser)]
 #[clap(name = env!("CARGO_PKG_NAME"), version, author, about)]
 struct Opts {
     path: PathBuf,
+}
+
+#[derive(Debug, Default)]
+struct Buffer {
+    rope: Rope,
+}
+
+impl Buffer {
+    fn save(&self, path: &Path) -> Result<()> {
+        self.rope.write_to(File::create(path)?)?;
+        Ok(())
+    }
+
+    fn load(&mut self, path: &Path) -> Result<()> {
+        self.rope = Rope::from_reader(File::open(path)?)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -37,8 +59,13 @@ impl Screen {
 }
 
 fn main() -> Result<()> {
-    #[allow(unused_variables)]
     let opts = Opts::parse();
+    let path = &opts.path;
+
+    let mut buffer = Buffer::default();
+    if path.exists() {
+        buffer.load(path)?;
+    }
 
     Screen::init()?;
     loop {
@@ -53,6 +80,9 @@ fn main() -> Result<()> {
                 } => match code {
                     KeyCode::Char('c') => {
                         break;
+                    }
+                    KeyCode::Char('s') => {
+                        buffer.save(path)?;
                     }
                     _ => {}
                 },
