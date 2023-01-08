@@ -18,4 +18,5 @@ strip = true
 
 [dependencies]
 anyhow = "1.0.68"
+clap = { version = "4.0.32", features = ["derive"] }
 crossterm = "0.25.0"
