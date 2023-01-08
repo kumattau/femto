@@ -2,6 +2,7 @@ use std::io::stdout;
 
 use anyhow::Result;
 use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -30,6 +31,26 @@ impl Screen {
 
 fn main() -> Result<()> {
     Screen::init()?;
+    loop {
+        #[allow(clippy::single_match)]
+        #[allow(clippy::collapsible_match)]
+        match event::read()? {
+            Event::Key(event) => match event {
+                KeyEvent {
+                    modifiers: KeyModifiers::CONTROL,
+                    code,
+                    ..
+                } => match code {
+                    KeyCode::Char('c') => {
+                        break;
+                    }
+                    _ => {}
+                },
+                _ => {}
+            },
+            _ => {}
+        }
+    }
     Screen::fini()?;
     Ok(())
 }
