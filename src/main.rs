@@ -175,9 +175,13 @@ impl Screen {
             off = off.max(cursor.row + 1 - rows);
         }
 
+        let mut all = *offset == 0 || *offset != off;
+
         let mut cur = None;
-        let mut buf = vec![];
-        loop {
+        let mut buf = all
+            .then(|| Vec::<u8>::with_capacity(cols * rows * 4))
+            .unwrap_or_default();
+        'outer: loop {
             buf.clear();
             let mut row = 0;
             for (j, lbr) in buffer.line.iter().enumerate().skip(off) {
@@ -186,6 +190,9 @@ impl Screen {
                 for (i, (len, wid)) in lbr.span.iter().enumerate() {
                     if cursor.col == i && cursor.row == j {
                         cur = Some(Cursor { col, row });
+                        if !all {
+                            break 'outer;
+                        }
                     }
                     if i == lbr.span.len() - 1 {
                         break;
@@ -200,31 +207,41 @@ impl Screen {
                     }
                     end += *len as usize;
                 }
-                buf.extend(&lbr.text.as_slice()[..end]);
+                if all {
+                    buf.extend(&lbr.text.as_slice()[..end]);
+                }
                 row += 1;
                 if row >= rows {
                     break;
                 }
-                buf.extend(b"\r\n");
+                if all {
+                    buf.extend(b"\r\n");
+                }
             }
             if cur.is_some() {
                 break;
             }
             off += 1;
+            all = true;
         }
-        let cur = cur.unwrap();
+        let cur = unsafe { cur.unwrap_unchecked() };
 
         *offset = off;
 
-        execute!(
-            stdout(),
-            cursor::Hide,
-            terminal::Clear(terminal::ClearType::All),
-            cursor::MoveTo(0, 0),
-            Print(unsafe { std::str::from_utf8_unchecked(&buf) }),
-            cursor::MoveTo(cur.col as _, cur.row as _),
-            cursor::Show
-        )?;
+        if all {
+            execute!(
+                stdout(),
+                cursor::Hide,
+                terminal::Clear(terminal::ClearType::All),
+                cursor::MoveTo(0, 0),
+                Print(unsafe { std::str::from_utf8_unchecked(&buf) }),
+                cursor::MoveTo(cur.col as _, cur.row as _),
+                cursor::Show
+            )?;
+        } else {
+            execute!(stdout(), cursor::MoveTo(cur.col as _, cur.row as _),)?;
+        }
+
         Ok(())
     }
 }
