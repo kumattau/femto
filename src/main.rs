@@ -1,5 +1,4 @@
 use std::{
-    fs::File,
     io::{stdout, Write},
     path::{Path, PathBuf},
 };
@@ -9,11 +8,10 @@ use clap::Parser;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    execute, queue,
+    execute,
     style::Print,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ropey::Rope;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -37,20 +35,108 @@ fn is_linebreak(str: &str) -> bool {
     )
 }
 
+#[derive(Debug)]
+enum Course {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
 #[derive(Debug, Default)]
+struct Cursor {
+    col: usize,
+    row: usize,
+}
+
+impl Cursor {
+    fn jump(&mut self, buffer: &Buffer, course: Course) {
+        match course {
+            Course::Up => {
+                if 0 < self.row {
+                    self.row -= 1;
+                    self.col = self.col.min(buffer.cols(self.row) - 1);
+                }
+            }
+            Course::Down => {
+                if self.row + 1 < buffer.rows() {
+                    self.row += 1;
+                    self.col = self.col.min(buffer.cols(self.row) - 1);
+                }
+            }
+            Course::Left => {
+                if 0 < self.col {
+                    self.col -= 1;
+                }
+            }
+            Course::Right => {
+                if self.col + 1 < buffer.cols(self.row) {
+                    self.col += 1;
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct LineBr {
+    text: Vec<u8>,
+    span: Vec<(u8, u8)>,
+}
+
+#[derive(Debug)]
 struct Buffer {
-    rope: Rope,
+    line: Vec<LineBr>,
+}
+
+impl Default for Buffer {
+    fn default() -> Self {
+        Self {
+            line: vec![LineBr {
+                text: vec![],
+                span: vec![(0, 0)],
+            }],
+        }
+    }
 }
 
 impl Buffer {
-    fn save(&self, path: &Path) -> Result<()> {
-        self.rope.write_to(File::create(path)?)?;
+    fn load(&mut self, path: &Path) -> Result<()> {
+        let text = std::fs::read_to_string(path)?;
+
+        let mut line: Vec<LineBr> = Default::default();
+        let mut last;
+        line.push(Default::default());
+        last = unsafe { line.last_mut().unwrap_unchecked() };
+        for segm in text.graphemes(true) {
+            last.text.extend(segm.as_bytes());
+            last.span.push((segm.len() as _, segm.width() as _));
+            if is_linebreak(segm) {
+                line.push(Default::default());
+                last = unsafe { line.last_mut().unwrap_unchecked() };
+            }
+        }
+        last.span.push((0, 0));
+        self.line = line;
         Ok(())
     }
 
-    fn load(&mut self, path: &Path) -> Result<()> {
-        self.rope = Rope::from_reader(File::open(path)?)?;
+    fn save(&mut self, path: &Path) -> Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        for line in &self.line {
+            write!(file, "{}", unsafe {
+                std::str::from_utf8_unchecked(&line.text)
+            })?;
+        }
         Ok(())
+    }
+
+    fn rows(&self) -> usize {
+        self.line.len()
+    }
+
+    fn cols(&self, row: usize) -> usize {
+        self.line[row].span.len()
     }
 }
 
@@ -80,40 +166,65 @@ impl Screen {
         Ok((cols as _, rows as _))
     }
 
-    fn draw(buffer: &Buffer) -> Result<()> {
-        let mut stdout = stdout();
-
+    fn draw(buffer: &Buffer, cursor: &Cursor, offset: &mut usize) -> Result<()> {
         let (cols, rows) = Screen::size()?;
 
-        queue!(stdout, cursor::Hide)?;
-        queue!(stdout, terminal::Clear(terminal::ClearType::All))?;
-        queue!(stdout, cursor::MoveTo(0, 0))?;
+        let mut off = *offset;
+        off = off.min(cursor.row);
+        if cursor.row + 1 >= rows {
+            off = off.max(cursor.row + 1 - rows);
+        }
 
-        let mut row = 0;
-        'outer: for line in buffer.rope.lines() {
-            let mut col = 0;
-            for segm in line.to_string().graphemes(true) {
-                if !is_linebreak(segm) {
-                    col += segm.width();
+        let mut cur = None;
+        let mut buf = vec![];
+        loop {
+            buf.clear();
+            let mut row = 0;
+            for (j, lbr) in buffer.line.iter().enumerate().skip(off) {
+                let mut col = 0;
+                let mut end = 0;
+                for (i, (len, wid)) in lbr.span.iter().enumerate() {
+                    if cursor.col == i && cursor.row == j {
+                        cur = Some(Cursor { col, row });
+                    }
+                    if i == lbr.span.len() - 1 {
+                        break;
+                    }
+                    col += *wid as usize;
                     if col >= cols {
                         col = 0;
                         row += 1;
                         if row >= rows {
-                            break 'outer;
+                            break;
                         }
                     }
-                    queue!(stdout, Print(segm))?;
+                    end += *len as usize;
                 }
+                buf.extend(&lbr.text.as_slice()[..end]);
+                row += 1;
+                if row >= rows {
+                    break;
+                }
+                buf.extend(b"\r\n");
             }
-            row += 1;
-            if row >= rows {
-                break 'outer;
+            if cur.is_some() {
+                break;
             }
-            queue!(stdout, Print("\r\n"))?;
+            off += 1;
         }
+        let cur = cur.unwrap();
 
-        queue!(stdout, cursor::Show)?;
-        stdout.flush()?;
+        *offset = off;
+
+        execute!(
+            stdout(),
+            cursor::Hide,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, 0),
+            Print(unsafe { std::str::from_utf8_unchecked(&buf) }),
+            cursor::MoveTo(cur.col as _, cur.row as _),
+            cursor::Show
+        )?;
         Ok(())
     }
 }
@@ -126,10 +237,12 @@ fn main() -> Result<()> {
     if path.exists() {
         buffer.load(path)?;
     }
+    let mut cursor = Cursor::default();
+    let mut offset = usize::default();
 
     Screen::init()?;
     loop {
-        Screen::draw(&buffer)?;
+        Screen::draw(&buffer, &cursor, &mut offset)?;
 
         #[allow(clippy::single_match)]
         #[allow(clippy::collapsible_match)]
@@ -145,6 +258,25 @@ fn main() -> Result<()> {
                     }
                     KeyCode::Char('s') => {
                         buffer.save(path)?;
+                    }
+                    _ => {}
+                },
+                KeyEvent {
+                    modifiers: KeyModifiers::NONE,
+                    code,
+                    ..
+                } => match code {
+                    KeyCode::Up => {
+                        cursor.jump(&buffer, Course::Up);
+                    }
+                    KeyCode::Down => {
+                        cursor.jump(&buffer, Course::Down);
+                    }
+                    KeyCode::Left => {
+                        cursor.jump(&buffer, Course::Left);
+                    }
+                    KeyCode::Right => {
+                        cursor.jump(&buffer, Course::Right);
                     }
                     _ => {}
                 },
