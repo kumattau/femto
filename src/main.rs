@@ -82,6 +82,7 @@ impl Cursor {
 struct LineBr {
     text: Vec<u8>,
     span: Vec<(u8, u8)>,
+    cols: usize,
 }
 
 #[derive(Debug)]
@@ -94,7 +95,8 @@ impl Default for Buffer {
         Self {
             line: vec![LineBr {
                 text: vec![],
-                span: vec![(0, 0)],
+                span: vec![(0, 1)],
+                cols: 1,
             }],
         }
     }
@@ -110,13 +112,18 @@ impl Buffer {
         last = unsafe { line.last_mut().unwrap_unchecked() };
         for segm in text.graphemes(true) {
             last.text.extend(segm.as_bytes());
-            last.span.push((segm.len() as _, segm.width() as _));
-            if is_linebreak(segm) {
+            if !is_linebreak(segm) {
+                last.span.push((segm.len() as _, segm.width() as _));
+                last.cols += segm.width();
+            } else {
+                last.span.push((segm.len() as _, 1));
+                last.cols += 1;
                 line.push(Default::default());
                 last = unsafe { line.last_mut().unwrap_unchecked() };
             }
         }
-        last.span.push((0, 0));
+        last.span.push((0, 1));
+        last.cols += 1;
         self.line = line;
         Ok(())
     }
