@@ -154,10 +154,6 @@ struct Editor {
 
 impl Editor {
     fn draw(&mut self, action: Action) -> Result<()> {
-        let offset = &mut self.offset;
-        let buffer = &mut self.buffer;
-        let cursor = &mut self.cursor;
-
         let mut all = false;
 
         if action == Action::Full {
@@ -170,22 +166,22 @@ impl Editor {
         }
         let (cols, rows) = (self.colrow.width, self.colrow.height);
 
-        let mut cur_col = cursor.x;
-        let mut cur_row = cursor.y;
+        let mut cur_col = self.cursor.x;
+        let mut cur_row = self.cursor.y;
 
         match action {
             Action::Up if 0 < cur_row => cur_row -= 1,
-            Action::Down if cur_row + 1 < buffer.rows() => cur_row += 1,
-            Action::Right | Action::Left => cur_col = cur_col.min(buffer.cols(cur_row) - 1),
+            Action::Down if cur_row + 1 < self.buffer.rows() => cur_row += 1,
+            Action::Right | Action::Left => cur_col = cur_col.min(self.buffer.cols(cur_row) - 1),
             _ => {}
         }
 
-        let mut off = *offset;
+        let mut off = self.offset;
         off = off.min(cur_row);
         if cur_row + 1 >= rows {
             off = off.max(cur_row + 1 - rows);
         }
-        if *offset != off {
+        if self.offset != off {
             all = true;
         }
 
@@ -199,7 +195,7 @@ impl Editor {
             let mut yet = true;
 
             let mut row = 0;
-            for (lpt, lbr) in buffer.line.iter().enumerate().skip(off) {
+            for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(off) {
                 let mut col = 0;
 
                 let mut ptr = 0;
@@ -213,7 +209,7 @@ impl Editor {
                     let end = bgn + *wid as usize;
                     if cur.is_none() && lpt == cur_row && (bgn..end).contains(&cur_col) {
                         match action {
-                            Action::Right if yet && cur_col + 1 < buffer.cols(cur_row) => {
+                            Action::Right if yet && cur_col + 1 < self.buffer.cols(cur_row) => {
                                 cur_col = end;
                                 yet = false; // cur will be determined by the next iteration
                             }
@@ -286,9 +282,9 @@ impl Editor {
             execute!(stdout(), cursor::MoveTo(cur.x as _, cur.y as _),)?;
         }
 
-        *offset = off;
-        cursor.x = cur_col;
-        cursor.y = cur_row;
+        self.offset = off;
+        self.cursor.x = cur_col;
+        self.cursor.y = cur_row;
 
         Ok(())
     }
