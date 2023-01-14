@@ -217,7 +217,8 @@ impl Editor {
 
         'outer: loop {
             buf.clear();
-            let mut act = *action;
+            let mut yet = true;
+            let act = *action;
 
             let mut row = 0;
             for (lpt, lbr) in buffer.line.iter().enumerate().skip(off) {
@@ -234,9 +235,9 @@ impl Editor {
                     let end = bgn + *wid as usize;
                     if cur.is_none() && lpt == cur_row && (bgn..end).contains(&cur_col) {
                         match act {
-                            Some(Action::Right) if cur_col + 1 < buffer.cols(cur_row) => {
+                            Some(Action::Right) if yet && cur_col + 1 < buffer.cols(cur_row) => {
                                 cur_col = end;
-                                act = None; // cur will be determined by the next iteration
+                                yet = false; // cur will be determined by the next iteration
                             }
                             Some(Action::Left) if 0 < cur_col => {
                                 cur_col = if cur_col > bgn { bgn } else { bgn_pre };
