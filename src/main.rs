@@ -164,7 +164,6 @@ impl Editor {
             self.colrow = colrow;
             all = true;
         }
-        let (cols, rows) = (self.colrow.width, self.colrow.height);
 
         match action {
             Action::Up if 0 < self.cursor.y => self.cursor.y -= 1,
@@ -178,8 +177,8 @@ impl Editor {
         {
             let mut offset = self.offset;
             offset = offset.min(self.cursor.y);
-            if self.cursor.y + 1 >= rows {
-                offset = offset.max(self.cursor.y + 1 - rows);
+            if self.cursor.y + 1 >= self.colrow.height {
+                offset = offset.max(self.cursor.y + 1 - self.colrow.height);
             }
             if self.offset != offset {
                 self.offset = offset;
@@ -189,7 +188,7 @@ impl Editor {
 
         let mut cur: Option<Point2D<usize, U>> = None;
         let mut buf = all
-            .then(|| Vec::<u8>::with_capacity(cols * rows * 4))
+            .then(|| Vec::<u8>::with_capacity(self.colrow.width * self.colrow.height * 4))
             .unwrap_or_default();
 
         'outer: loop {
@@ -238,10 +237,10 @@ impl Editor {
                     bgn_pre = bgn;
 
                     col += *wid as usize;
-                    if col >= cols {
+                    if col >= self.colrow.width {
                         col = 0;
                         row += 1;
-                        if row >= rows {
+                        if row >= self.colrow.height {
                             break;
                         }
                     }
@@ -258,7 +257,7 @@ impl Editor {
                     buf.extend(&lbr.text.as_slice()[..ptr]);
                 }
                 row += 1;
-                if row >= rows {
+                if row >= self.colrow.height {
                     break;
                 }
                 if all {
