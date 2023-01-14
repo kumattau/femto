@@ -186,12 +186,12 @@ impl Editor {
             }
         }
 
-        let mut cur: Option<Point2D<usize, U>> = None;
         let mut buf = all
             .then(|| Vec::<u8>::with_capacity(self.colrow.width * self.colrow.height * 4))
             .unwrap_or_default();
 
-        'outer: loop {
+        let mut cur: Option<Point2D<usize, U>> = None;
+        'outer: while cur.is_none() {
             buf.clear();
             let mut yet = true;
 
