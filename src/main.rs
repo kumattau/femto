@@ -173,13 +173,21 @@ impl Screen {
         let (cols, rows) = terminal::size()?;
         Ok((cols as _, rows as _))
     }
+}
 
-    fn draw(
-        buffer: &Buffer,
-        cursor: &mut Cursor,
-        offset: &mut usize,
-        course: &mut Option<Course>,
-    ) -> Result<()> {
+#[derive(Debug, Default)]
+struct Editor {
+    offset: usize,
+    buffer: Buffer,
+    cursor: Cursor,
+}
+
+impl Editor {
+    fn draw(&mut self, course: &mut Option<Course>) -> Result<()> {
+        let offset = &mut self.offset;
+        let buffer = &mut self.buffer;
+        let cursor = &mut self.cursor;
+
         let (cols, rows) = Screen::size()?;
 
         let mut cur_col = cursor.col;
@@ -312,17 +320,16 @@ fn main() -> Result<()> {
     let opts = Opts::parse();
     let path = &opts.path;
 
-    let mut buffer = Buffer::default();
+    let mut editor = Editor::default();
+
     if path.exists() {
-        buffer.load(path)?;
+        editor.buffer.load(path)?;
     }
-    let mut cursor = Cursor::default();
-    let mut offset = usize::default();
     let mut course = None;
 
     Screen::init()?;
     loop {
-        Screen::draw(&buffer, &mut cursor, &mut offset, &mut course)?;
+        editor.draw(&mut course)?;
 
         #[allow(clippy::single_match)]
         #[allow(clippy::collapsible_match)]
@@ -337,7 +344,7 @@ fn main() -> Result<()> {
                         break;
                     }
                     KeyCode::Char('s') => {
-                        buffer.save(path)?;
+                        editor.buffer.save(path)?;
                     }
                     _ => {}
                 },
