@@ -42,6 +42,7 @@ enum Action {
     Down,
     Left,
     Right,
+    Resize((usize, usize)),
 }
 
 #[derive(Debug, Default)]
@@ -151,6 +152,7 @@ struct Editor {
     offset: usize,
     buffer: Buffer,
     cursor: Cursor,
+    colrow: (usize, usize),
 }
 
 impl Editor {
@@ -159,7 +161,17 @@ impl Editor {
         let buffer = &mut self.buffer;
         let cursor = &mut self.cursor;
 
-        let (cols, rows) = Screen::size()?;
+        let mut all = false;
+
+        if action == Action::Full {
+            all = true;
+        }
+
+        if let Action::Resize(colrow) = action {
+            self.colrow = colrow;
+            all = true;
+        }
+        let (cols, rows) = (self.colrow.0, self.colrow.1);
 
         let mut cur_col = cursor.col;
         let mut cur_row = cursor.row;
@@ -176,8 +188,9 @@ impl Editor {
         if cur_row + 1 >= rows {
             off = off.max(cur_row + 1 - rows);
         }
-
-        let mut all = action == Action::Full || *offset != off;
+        if *offset != off {
+            all = true;
+        }
 
         let mut cur = None;
         let mut buf = all
@@ -294,7 +307,7 @@ fn main() -> Result<()> {
         editor.buffer.load(path)?;
     }
     Screen::init()?;
-    editor.draw(Action::Full)?;
+    editor.draw(Action::Resize(Screen::size().unwrap()))?;
     loop {
         #[allow(clippy::single_match)]
         #[allow(clippy::collapsible_match)]
@@ -325,7 +338,7 @@ fn main() -> Result<()> {
                 },
                 _ => continue,
             },
-            Event::Resize(..) => Action::Full,
+            Event::Resize(cols, rows) => Action::Resize((cols as _, rows as _)),
             _ => continue,
         };
         editor.draw(action)?;
