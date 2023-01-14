@@ -36,7 +36,7 @@ fn is_linebreak(str: &str) -> bool {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum Course {
+enum Action {
     Up,
     Down,
     Left,
@@ -51,26 +51,26 @@ struct Cursor {
 
 impl Cursor {
     #[allow(dead_code)]
-    fn jump(&mut self, buffer: &Buffer, course: Course) {
-        match course {
-            Course::Up => {
+    fn jump(&mut self, buffer: &Buffer, action: Action) {
+        match action {
+            Action::Up => {
                 if 0 < self.row {
                     self.row -= 1;
                     self.col = self.col.min(buffer.cols(self.row) - 1);
                 }
             }
-            Course::Down => {
+            Action::Down => {
                 if self.row + 1 < buffer.rows() {
                     self.row += 1;
                     self.col = self.col.min(buffer.cols(self.row) - 1);
                 }
             }
-            Course::Left => {
+            Action::Left => {
                 if 0 < self.col {
                     self.col -= 1;
                 }
             }
-            Course::Right => {
+            Action::Right => {
                 if self.col + 1 < buffer.cols(self.row) {
                     self.col += 1;
                 }
@@ -183,7 +183,7 @@ struct Editor {
 }
 
 impl Editor {
-    fn draw(&mut self, course: &mut Option<Course>) -> Result<()> {
+    fn draw(&mut self, action: &mut Option<Action>) -> Result<()> {
         let offset = &mut self.offset;
         let buffer = &mut self.buffer;
         let cursor = &mut self.cursor;
@@ -193,10 +193,10 @@ impl Editor {
         let mut cur_col = cursor.col;
         let mut cur_row = cursor.row;
 
-        match course {
-            Some(Course::Up) if 0 < cur_row => cur_row -= 1,
-            Some(Course::Down) if cur_row + 1 < buffer.rows() => cur_row += 1,
-            Some(Course::Right) | Some(Course::Left) => {
+        match action {
+            Some(Action::Up) if 0 < cur_row => cur_row -= 1,
+            Some(Action::Down) if cur_row + 1 < buffer.rows() => cur_row += 1,
+            Some(Action::Right) | Some(Action::Left) => {
                 cur_col = cur_col.min(buffer.cols(cur_row) - 1)
             }
             _ => {}
@@ -217,7 +217,7 @@ impl Editor {
 
         'outer: loop {
             buf.clear();
-            let mut cou = *course;
+            let mut act = *action;
 
             let mut row = 0;
             for (lpt, lbr) in buffer.line.iter().enumerate().skip(off) {
@@ -233,12 +233,12 @@ impl Editor {
                 for (cpt, (len, wid)) in lbr.span.iter().enumerate() {
                     let end = bgn + *wid as usize;
                     if cur.is_none() && lpt == cur_row && (bgn..end).contains(&cur_col) {
-                        match cou {
-                            Some(Course::Right) if cur_col + 1 < buffer.cols(cur_row) => {
+                        match act {
+                            Some(Action::Right) if cur_col + 1 < buffer.cols(cur_row) => {
                                 cur_col = end;
-                                cou = None; // cur will be determined by the next iteration
+                                act = None; // cur will be determined by the next iteration
                             }
-                            Some(Course::Left) if 0 < cur_col => {
+                            Some(Action::Left) if 0 < cur_col => {
                                 cur_col = if cur_col > bgn { bgn } else { bgn_pre };
                                 cur = Some(Cursor {
                                     col: col_pre,
@@ -270,7 +270,7 @@ impl Editor {
                 }
                 if cur.is_none()
                     && lpt == cur_row
-                    && (Some(Course::Up) == cou || Some(Course::Down) == cou)
+                    && (Some(Action::Up) == act || Some(Action::Down) == act)
                 {
                     cur = Some(Cursor { col, row });
                 }
@@ -308,7 +308,7 @@ impl Editor {
         }
 
         *offset = off;
-        *course = None;
+        *action = None;
         cursor.col = cur_col;
         cursor.row = cur_row;
 
@@ -325,11 +325,11 @@ fn main() -> Result<()> {
     if path.exists() {
         editor.buffer.load(path)?;
     }
-    let mut course = None;
+    let mut action = None;
 
     Screen::init()?;
     loop {
-        editor.draw(&mut course)?;
+        editor.draw(&mut action)?;
 
         #[allow(clippy::single_match)]
         #[allow(clippy::collapsible_match)]
@@ -340,12 +340,8 @@ fn main() -> Result<()> {
                     code,
                     ..
                 } => match code {
-                    KeyCode::Char('c') => {
-                        break;
-                    }
-                    KeyCode::Char('s') => {
-                        editor.buffer.save(path)?;
-                    }
+                    KeyCode::Char('c') => break,
+                    KeyCode::Char('s') => editor.buffer.save(path)?,
                     _ => {}
                 },
                 KeyEvent {
@@ -353,18 +349,10 @@ fn main() -> Result<()> {
                     code,
                     ..
                 } => match code {
-                    KeyCode::Up => {
-                        course = Some(Course::Up);
-                    }
-                    KeyCode::Down => {
-                        course = Some(Course::Down);
-                    }
-                    KeyCode::Left => {
-                        course = Some(Course::Left);
-                    }
-                    KeyCode::Right => {
-                        course = Some(Course::Right);
-                    }
+                    KeyCode::Up => action = Some(Action::Up),
+                    KeyCode::Down => action = Some(Action::Down),
+                    KeyCode::Left => action = Some(Action::Left),
+                    KeyCode::Right => action = Some(Action::Right),
                     _ => {}
                 },
                 _ => {}
