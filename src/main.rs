@@ -177,7 +177,7 @@ impl Editor {
             off = off.max(cur_row + 1 - rows);
         }
 
-        let mut all = action == Action::Full || *offset == 0 || *offset != off;
+        let mut all = action == Action::Full || *offset != off;
 
         let mut cur = None;
         let mut buf = all
