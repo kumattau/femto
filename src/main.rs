@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     io::{stdout, Write},
     ops::Range,
     path::{Path, PathBuf},
@@ -85,10 +86,8 @@ impl Default for Buffer {
     }
 }
 
-impl Buffer {
-    fn load(&mut self, path: &Path) -> Result<()> {
-        let text = std::fs::read_to_string(path)?;
-
+impl From<&str> for Buffer {
+    fn from(text: &str) -> Self {
         let mut line: Vec<LineBr> = Default::default();
         let mut last;
         line.push(Default::default());
@@ -107,12 +106,12 @@ impl Buffer {
         }
         last.span.push((0, 1));
         last.cols += 1;
-        self.line = line;
-        Ok(())
+        Self { line }
     }
+}
 
-    fn save(&mut self, path: &Path) -> Result<()> {
-        let mut file = std::fs::File::create(path)?;
+impl fmt::Display for Buffer {
+    fn fmt(&self, file: &mut fmt::Formatter<'_>) -> fmt::Result {
         for line in &self.line {
             write!(file, "{}", unsafe {
                 std::str::from_utf8_unchecked(&line.text)
@@ -120,7 +119,9 @@ impl Buffer {
         }
         Ok(())
     }
+}
 
+impl Buffer {
     fn rows(&self) -> usize {
         self.line.len()
     }
@@ -166,6 +167,16 @@ struct Editor {
 }
 
 impl Editor {
+    fn load(&mut self, path: &Path) -> Result<()> {
+        self.buffer = Buffer::from(std::fs::read_to_string(path)?.as_str());
+        Ok(())
+    }
+
+    fn save(&mut self, path: &Path) -> Result<()> {
+        write!(std::fs::File::create(path)?, "{}", &self.buffer)?;
+        Ok(())
+    }
+
     fn draw(&mut self, action: Vec<Action>) -> Result<()> {
         if action.is_empty() {
             return Ok(());
@@ -308,7 +319,7 @@ fn main() -> Result<()> {
     let mut editor = Editor::default();
 
     if path.exists() {
-        editor.buffer.load(path)?;
+        editor.load(path)?;
     }
     Screen::init()?;
     editor.draw(vec![Action::Resize(Screen::size().unwrap())])?;
@@ -324,7 +335,7 @@ fn main() -> Result<()> {
                     ..
                 } => match code {
                     KeyCode::Char('c') => break,
-                    KeyCode::Char('s') => editor.buffer.save(path)?,
+                    KeyCode::Char('s') => editor.save(path)?,
                     _ => {}
                 },
                 KeyEvent {
