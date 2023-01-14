@@ -12,8 +12,11 @@ use crossterm::{
     style::Print,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use euclid::Size2D;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+struct U; // dummy Unit for euclid
 
 #[derive(Debug, Parser)]
 #[clap(name = env!("CARGO_PKG_NAME"), version, author, about)]
@@ -42,7 +45,7 @@ enum Action {
     Down,
     Left,
     Right,
-    Resize((usize, usize)),
+    Resize(Size2D<usize, U>),
 }
 
 #[derive(Debug, Default)]
@@ -141,9 +144,9 @@ impl Screen {
         Ok(())
     }
 
-    fn size() -> Result<(usize, usize)> {
+    fn size() -> Result<Size2D<usize, U>> {
         let (cols, rows) = terminal::size()?;
-        Ok((cols as _, rows as _))
+        Ok(Size2D::new(cols as _, rows as _))
     }
 }
 
@@ -152,7 +155,7 @@ struct Editor {
     offset: usize,
     buffer: Buffer,
     cursor: Cursor,
-    colrow: (usize, usize),
+    colrow: Size2D<usize, U>,
 }
 
 impl Editor {
@@ -171,7 +174,7 @@ impl Editor {
             self.colrow = colrow;
             all = true;
         }
-        let (cols, rows) = (self.colrow.0, self.colrow.1);
+        let (cols, rows) = (self.colrow.width, self.colrow.height);
 
         let mut cur_col = cursor.col;
         let mut cur_row = cursor.row;
@@ -338,7 +341,9 @@ fn main() -> Result<()> {
                 },
                 _ => continue,
             },
-            Event::Resize(cols, rows) => Action::Resize((cols as _, rows as _)),
+            Event::Resize(cols, rows) => {
+                Action::Resize(Size2D::<usize, U>::new(cols as _, rows as _))
+            }
             _ => continue,
         };
         editor.draw(action)?;
