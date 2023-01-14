@@ -230,17 +230,20 @@ impl Editor {
                     if cpt == lbr.span.len() - 1 {
                         break;
                     }
+
+                    // save for Action::Left
                     col_pre = col;
+                    row_pre = row;
+                    bgn_pre = bgn;
+
                     col += *wid as usize;
                     if col >= cols {
                         col = 0;
-                        row_pre = row;
                         row += 1;
                         if row >= rows {
                             break;
                         }
                     }
-                    bgn_pre = bgn;
                     bgn = end;
                     ptr += *len as usize;
                 }
