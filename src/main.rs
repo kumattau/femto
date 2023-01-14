@@ -191,7 +191,7 @@ impl Editor {
             .unwrap_or_default();
 
         let mut cur: Option<Point2D<usize, U>> = None;
-        'outer: while cur.is_none() {
+        'outer: loop {
             out.clear();
             let mut yet = true;
 
