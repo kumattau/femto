@@ -35,7 +35,7 @@ fn is_linebreak(str: &str) -> bool {
     )
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum Course {
     Up,
     Down,
@@ -50,6 +50,7 @@ struct Cursor {
 }
 
 impl Cursor {
+    #[allow(dead_code)]
     fn jump(&mut self, buffer: &Buffer, course: Course) {
         match course {
             Course::Up => {
@@ -143,7 +144,7 @@ impl Buffer {
     }
 
     fn cols(&self, row: usize) -> usize {
-        self.line[row].span.len()
+        self.line[row].cols
     }
 }
 
@@ -173,13 +174,30 @@ impl Screen {
         Ok((cols as _, rows as _))
     }
 
-    fn draw(buffer: &Buffer, cursor: &Cursor, offset: &mut usize) -> Result<()> {
+    fn draw(
+        buffer: &Buffer,
+        cursor: &mut Cursor,
+        offset: &mut usize,
+        course: &mut Option<Course>,
+    ) -> Result<()> {
         let (cols, rows) = Screen::size()?;
 
+        let mut cur_col = cursor.col;
+        let mut cur_row = cursor.row;
+
+        match course {
+            Some(Course::Up) if 0 < cur_row => cur_row -= 1,
+            Some(Course::Down) if cur_row + 1 < buffer.rows() => cur_row += 1,
+            Some(Course::Right) | Some(Course::Left) => {
+                cur_col = cur_col.min(buffer.cols(cur_row) - 1)
+            }
+            _ => {}
+        }
+
         let mut off = *offset;
-        off = off.min(cursor.row);
-        if cursor.row + 1 >= rows {
-            off = off.max(cursor.row + 1 - rows);
+        off = off.min(cur_row);
+        if cur_row + 1 >= rows {
+            off = off.max(cur_row + 1 - rows);
         }
 
         let mut all = *offset == 0 || *offset != off;
@@ -188,34 +206,68 @@ impl Screen {
         let mut buf = all
             .then(|| Vec::<u8>::with_capacity(cols * rows * 4))
             .unwrap_or_default();
+
         'outer: loop {
             buf.clear();
+            let mut cou = *course;
+
             let mut row = 0;
-            for (j, lbr) in buffer.line.iter().enumerate().skip(off) {
+            for (lpt, lbr) in buffer.line.iter().enumerate().skip(off) {
                 let mut col = 0;
-                let mut end = 0;
-                for (i, (len, wid)) in lbr.span.iter().enumerate() {
-                    if cursor.col == i && cursor.row == j {
-                        cur = Some(Cursor { col, row });
-                        if !all {
-                            break 'outer;
+
+                let mut ptr = 0;
+                let mut bgn = 0;
+
+                let mut col_pre = col;
+                let mut row_pre = row;
+                let mut bgn_pre = bgn;
+
+                for (cpt, (len, wid)) in lbr.span.iter().enumerate() {
+                    let end = bgn + *wid as usize;
+                    if cur.is_none() && lpt == cur_row && (bgn..end).contains(&cur_col) {
+                        match cou {
+                            Some(Course::Right) if cur_col + 1 < buffer.cols(cur_row) => {
+                                cur_col = end;
+                                cou = None; // cur will be determined by the next iteration
+                            }
+                            Some(Course::Left) if 0 < cur_col => {
+                                cur_col = if cur_col > bgn { bgn } else { bgn_pre };
+                                cur = Some(Cursor {
+                                    col: col_pre,
+                                    row: row_pre,
+                                });
+                            }
+                            _ => cur = Some(Cursor { col, row }),
                         }
                     }
-                    if i == lbr.span.len() - 1 {
+                    if cur.is_some() && !all {
+                        break 'outer;
+                    }
+                    if cpt == lbr.span.len() - 1 {
                         break;
                     }
+                    col_pre = col;
                     col += *wid as usize;
                     if col >= cols {
                         col = 0;
+                        row_pre = row;
                         row += 1;
                         if row >= rows {
                             break;
                         }
                     }
-                    end += *len as usize;
+                    bgn_pre = bgn;
+                    bgn = end;
+                    ptr += *len as usize;
+                }
+                if cur.is_none()
+                    && lpt == cur_row
+                    && (Some(Course::Up) == cou || Some(Course::Down) == cou)
+                {
+                    cur = Some(Cursor { col, row });
                 }
                 if all {
-                    buf.extend(&lbr.text.as_slice()[..end]);
+                    buf.extend(&lbr.text.as_slice()[..ptr]);
                 }
                 row += 1;
                 if row >= rows {
@@ -233,8 +285,6 @@ impl Screen {
         }
         let cur = unsafe { cur.unwrap_unchecked() };
 
-        *offset = off;
-
         if all {
             execute!(
                 stdout(),
@@ -248,6 +298,11 @@ impl Screen {
         } else {
             execute!(stdout(), cursor::MoveTo(cur.col as _, cur.row as _),)?;
         }
+
+        *offset = off;
+        *course = None;
+        cursor.col = cur_col;
+        cursor.row = cur_row;
 
         Ok(())
     }
@@ -263,10 +318,11 @@ fn main() -> Result<()> {
     }
     let mut cursor = Cursor::default();
     let mut offset = usize::default();
+    let mut course = None;
 
     Screen::init()?;
     loop {
-        Screen::draw(&buffer, &cursor, &mut offset)?;
+        Screen::draw(&buffer, &mut cursor, &mut offset, &mut course)?;
 
         #[allow(clippy::single_match)]
         #[allow(clippy::collapsible_match)]
@@ -291,16 +347,16 @@ fn main() -> Result<()> {
                     ..
                 } => match code {
                     KeyCode::Up => {
-                        cursor.jump(&buffer, Course::Up);
+                        course = Some(Course::Up);
                     }
                     KeyCode::Down => {
-                        cursor.jump(&buffer, Course::Down);
+                        course = Some(Course::Down);
                     }
                     KeyCode::Left => {
-                        cursor.jump(&buffer, Course::Left);
+                        course = Some(Course::Left);
                     }
                     KeyCode::Right => {
-                        cursor.jump(&buffer, Course::Right);
+                        course = Some(Course::Right);
                     }
                     _ => {}
                 },
