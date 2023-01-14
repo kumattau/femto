@@ -206,7 +206,7 @@ impl Editor {
         let mut cur: Option<Point> = None;
         'outer: loop {
             out.clear();
-            let mut yet = true;
+            let mut fix = false;
 
             let mut pos = Point::new(0, 0);
             for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
@@ -219,10 +219,10 @@ impl Editor {
                     if cur.is_none() && lpt == self.cursor.y && seg.contains(&self.cursor.x) {
                         match action {
                             Action::Right
-                                if yet && self.cursor.x + 1 < self.buffer.cols(self.cursor.y) =>
+                                if !fix && self.cursor.x + 1 < self.buffer.cols(self.cursor.y) =>
                             {
                                 self.cursor.x = seg.end;
-                                yet = false; // cur will be determined by the next iteration
+                                fix = true; // cur will be determined by the next iteration
                             }
                             Action::Left if 0 < self.cursor.x => {
                                 self.cursor.x = if self.cursor.x > seg.start {
