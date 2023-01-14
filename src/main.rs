@@ -166,23 +166,25 @@ impl Editor {
         }
         let (cols, rows) = (self.colrow.width, self.colrow.height);
 
-        let mut cur_col = self.cursor.x;
-        let mut cur_row = self.cursor.y;
-
         match action {
-            Action::Up if 0 < cur_row => cur_row -= 1,
-            Action::Down if cur_row + 1 < self.buffer.rows() => cur_row += 1,
-            Action::Right | Action::Left => cur_col = cur_col.min(self.buffer.cols(cur_row) - 1),
+            Action::Up if 0 < self.cursor.y => self.cursor.y -= 1,
+            Action::Down if self.cursor.y + 1 < self.buffer.rows() => self.cursor.y += 1,
+            Action::Right | Action::Left => {
+                self.cursor.x = self.cursor.x.min(self.buffer.cols(self.cursor.y) - 1)
+            }
             _ => {}
         }
 
-        let mut off = self.offset;
-        off = off.min(cur_row);
-        if cur_row + 1 >= rows {
-            off = off.max(cur_row + 1 - rows);
-        }
-        if self.offset != off {
-            all = true;
+        {
+            let mut offset = self.offset;
+            offset = offset.min(self.cursor.y);
+            if self.cursor.y + 1 >= rows {
+                offset = offset.max(self.cursor.y + 1 - rows);
+            }
+            if self.offset != offset {
+                self.offset = offset;
+                all = true;
+            }
         }
 
         let mut cur: Option<Point2D<usize, U>> = None;
@@ -195,7 +197,7 @@ impl Editor {
             let mut yet = true;
 
             let mut row = 0;
-            for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(off) {
+            for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
                 let mut col = 0;
 
                 let mut ptr = 0;
@@ -207,14 +209,17 @@ impl Editor {
 
                 for (cpt, (len, wid)) in lbr.span.iter().enumerate() {
                     let end = bgn + *wid as usize;
-                    if cur.is_none() && lpt == cur_row && (bgn..end).contains(&cur_col) {
+                    if cur.is_none() && lpt == self.cursor.y && (bgn..end).contains(&self.cursor.x)
+                    {
                         match action {
-                            Action::Right if yet && cur_col + 1 < self.buffer.cols(cur_row) => {
-                                cur_col = end;
+                            Action::Right
+                                if yet && self.cursor.x + 1 < self.buffer.cols(self.cursor.y) =>
+                            {
+                                self.cursor.x = end;
                                 yet = false; // cur will be determined by the next iteration
                             }
-                            Action::Left if 0 < cur_col => {
-                                cur_col = if cur_col > bgn { bgn } else { bgn_pre };
+                            Action::Left if 0 < self.cursor.x => {
+                                self.cursor.x = if self.cursor.x > bgn { bgn } else { bgn_pre };
                                 cur = Some(Point2D::new(col_pre, row_pre));
                             }
                             _ => cur = Some(Point2D::new(col, row)),
@@ -244,7 +249,7 @@ impl Editor {
                     ptr += *len as usize;
                 }
                 if cur.is_none()
-                    && lpt == cur_row
+                    && lpt == self.cursor.y
                     && (Action::Up == action || Action::Down == action)
                 {
                     cur = Some(Point2D::new(col, row));
@@ -263,7 +268,7 @@ impl Editor {
             if cur.is_some() {
                 break;
             }
-            off += 1;
+            self.offset += 1;
             all = true;
         }
         let cur = unsafe { cur.unwrap_unchecked() };
@@ -281,10 +286,6 @@ impl Editor {
         } else {
             execute!(stdout(), cursor::MoveTo(cur.x as _, cur.y as _),)?;
         }
-
-        self.offset = off;
-        self.cursor.x = cur_col;
-        self.cursor.y = cur_row;
 
         Ok(())
     }
