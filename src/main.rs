@@ -54,7 +54,7 @@ enum Action {
 
 #[derive(Debug, Default)]
 struct LineBr {
-    text: Vec<u8>,
+    data: Vec<u8>,
     span: Vec<(u8, u8)>,
     cols: usize,
 }
@@ -74,15 +74,19 @@ struct Buffer {
     line: Vec<LineBr>,
 }
 
+impl Buffer {
+    fn rows(&self) -> usize {
+        self.line.len()
+    }
+
+    fn cols(&self, row: usize) -> usize {
+        self.line[row].cols
+    }
+}
+
 impl Default for Buffer {
     fn default() -> Self {
-        Self {
-            line: vec![LineBr {
-                text: vec![],
-                span: vec![(0, 1)],
-                cols: 1,
-            }],
-        }
+        Buffer::from("")
     }
 }
 
@@ -93,7 +97,7 @@ impl From<&str> for Buffer {
         line.push(Default::default());
         last = unsafe { line.last_mut().unwrap_unchecked() };
         for segm in text.graphemes(true) {
-            last.text.extend(segm.as_bytes());
+            last.data.extend(segm.as_bytes());
             if !is_linebreak(segm) {
                 last.span.push((segm.len() as _, segm.width() as _));
                 last.cols += segm.width();
@@ -114,20 +118,10 @@ impl fmt::Display for Buffer {
     fn fmt(&self, file: &mut fmt::Formatter<'_>) -> fmt::Result {
         for line in &self.line {
             write!(file, "{}", unsafe {
-                std::str::from_utf8_unchecked(&line.text)
+                std::str::from_utf8_unchecked(&line.data)
             })?;
         }
         Ok(())
-    }
-}
-
-impl Buffer {
-    fn rows(&self) -> usize {
-        self.line.len()
-    }
-
-    fn cols(&self, row: usize) -> usize {
-        self.line[row].cols
     }
 }
 
@@ -276,7 +270,7 @@ impl Editor {
                     cur = Some(pos)
                 }
                 if all {
-                    out.extend(&lbr.text.as_slice()[..eol]);
+                    out.extend(&lbr.data.as_slice()[..eol]);
                 }
                 pos.y += 1;
                 if pos.y >= self.scrsiz.height {
