@@ -183,7 +183,7 @@ struct Editor {
 }
 
 impl Editor {
-    fn draw(&mut self, action: &mut Option<Action>) -> Result<()> {
+    fn draw(&mut self, action: Option<Action>) -> Result<()> {
         let offset = &mut self.offset;
         let buffer = &mut self.buffer;
         let cursor = &mut self.cursor;
@@ -218,7 +218,6 @@ impl Editor {
         'outer: loop {
             buf.clear();
             let mut yet = true;
-            let act = *action;
 
             let mut row = 0;
             for (lpt, lbr) in buffer.line.iter().enumerate().skip(off) {
@@ -234,7 +233,7 @@ impl Editor {
                 for (cpt, (len, wid)) in lbr.span.iter().enumerate() {
                     let end = bgn + *wid as usize;
                     if cur.is_none() && lpt == cur_row && (bgn..end).contains(&cur_col) {
-                        match act {
+                        match action {
                             Some(Action::Right) if yet && cur_col + 1 < buffer.cols(cur_row) => {
                                 cur_col = end;
                                 yet = false; // cur will be determined by the next iteration
@@ -271,7 +270,7 @@ impl Editor {
                 }
                 if cur.is_none()
                     && lpt == cur_row
-                    && (Some(Action::Up) == act || Some(Action::Down) == act)
+                    && (Some(Action::Up) == action || Some(Action::Down) == action)
                 {
                     cur = Some(Cursor { col, row });
                 }
@@ -309,7 +308,6 @@ impl Editor {
         }
 
         *offset = off;
-        *action = None;
         cursor.col = cur_col;
         cursor.row = cur_row;
 
@@ -330,7 +328,8 @@ fn main() -> Result<()> {
 
     Screen::init()?;
     loop {
-        editor.draw(&mut action)?;
+        editor.draw(action)?;
+        action = None;
 
         #[allow(clippy::single_match)]
         #[allow(clippy::collapsible_match)]
