@@ -37,7 +37,7 @@ fn is_linebreak(str: &str) -> bool {
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum Action {
-    None,
+    Full,
     Up,
     Down,
     Left,
@@ -177,7 +177,7 @@ impl Editor {
             off = off.max(cur_row + 1 - rows);
         }
 
-        let mut all = *offset == 0 || *offset != off;
+        let mut all = action == Action::Full || *offset == 0 || *offset != off;
 
         let mut cur = None;
         let mut buf = all
@@ -293,16 +293,12 @@ fn main() -> Result<()> {
     if path.exists() {
         editor.buffer.load(path)?;
     }
-    let mut action = Action::None;
-
     Screen::init()?;
+    editor.draw(Action::Full)?;
     loop {
-        editor.draw(action)?;
-        action = Action::None;
-
         #[allow(clippy::single_match)]
         #[allow(clippy::collapsible_match)]
-        match event::read()? {
+        let action = match event::read()? {
             Event::Key(event) => match event {
                 KeyEvent {
                     modifiers: KeyModifiers::CONTROL,
@@ -310,24 +306,29 @@ fn main() -> Result<()> {
                     ..
                 } => match code {
                     KeyCode::Char('c') => break,
-                    KeyCode::Char('s') => editor.buffer.save(path)?,
-                    _ => {}
+                    KeyCode::Char('s') => {
+                        editor.buffer.save(path)?;
+                        continue;
+                    }
+                    _ => continue,
                 },
                 KeyEvent {
                     modifiers: KeyModifiers::NONE,
                     code,
                     ..
                 } => match code {
-                    KeyCode::Up => action = Action::Up,
-                    KeyCode::Down => action = Action::Down,
-                    KeyCode::Left => action = Action::Left,
-                    KeyCode::Right => action = Action::Right,
-                    _ => {}
+                    KeyCode::Up => Action::Up,
+                    KeyCode::Down => Action::Down,
+                    KeyCode::Left => Action::Left,
+                    KeyCode::Right => Action::Right,
+                    _ => Action::Full,
                 },
-                _ => {}
+                _ => continue,
             },
-            _ => {}
-        }
+            Event::Resize(..) => Action::Full,
+            _ => continue,
+        };
+        editor.draw(action)?;
     }
     Screen::fini()?;
     Ok(())
