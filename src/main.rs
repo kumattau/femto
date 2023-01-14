@@ -179,8 +179,10 @@ impl Editor {
         }
 
         if let Action::Resize(scrsiz) = action {
-            self.scrsiz = scrsiz;
-            all = true;
+            if self.scrsiz != scrsiz {
+                self.scrsiz = scrsiz;
+                all = true;
+            }
         }
 
         match action {
@@ -193,8 +195,7 @@ impl Editor {
         }
 
         {
-            let mut offset = self.offset;
-            offset = offset.min(self.cursor.y);
+            let mut offset = self.offset.min(self.cursor.y);
             if self.cursor.y + 1 >= self.scrsiz.height {
                 offset = offset.max(self.cursor.y + 1 - self.scrsiz.height);
             }
@@ -216,7 +217,7 @@ impl Editor {
             let mut pos = Point::new(0, 0);
             for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
                 pos.x = 0;
-                let mut end = 0;
+                let mut eol = 0;
 
                 let mut stt_pre = 0;
                 let mut pos_pre = pos;
@@ -255,7 +256,7 @@ impl Editor {
                             break;
                         }
                     }
-                    end = str.end;
+                    eol = str.end;
                 }
                 if lpt == self.cursor.y
                     && cur.is_none()
@@ -264,7 +265,7 @@ impl Editor {
                     cur = Some(pos)
                 }
                 if all {
-                    out.extend(&lbr.text.as_slice()[..end]);
+                    out.extend(&lbr.text.as_slice()[..eol]);
                 }
                 pos.y += 1;
                 if pos.y >= self.scrsiz.height {
