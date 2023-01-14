@@ -1,5 +1,6 @@
 use std::{
     io::{stdout, Write},
+    ops::Range,
     path::{Path, PathBuf},
 };
 
@@ -53,6 +54,16 @@ struct LineBr {
     text: Vec<u8>,
     span: Vec<(u8, u8)>,
     cols: usize,
+}
+
+impl LineBr {
+    fn span(&self) -> impl Iterator<Item = (Range<usize>, Range<usize>)> + '_ {
+        self.span.iter().scan((0..0, 0..0), |item, next| {
+            item.0 = item.0.end..item.0.end + next.0 as usize;
+            item.1 = item.1.end..item.1.end + next.1 as usize;
+            Some(item.clone())
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -198,24 +209,25 @@ impl Editor {
             let mut pos = Point2D::<usize, U>::new(0, 0);
             for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
                 pos.x = 0;
-                let mut bgn = 0;
-                let mut ptr = 0;
+                let mut end = 0;
 
+                let mut bgn_pre = 0;
                 let mut pos_pre = pos;
-                let mut bgn_pre = bgn;
-                for (cpt, (len, wid)) in lbr.span.iter().enumerate() {
-                    let end = bgn + *wid as usize;
-                    if cur.is_none() && lpt == self.cursor.y && (bgn..end).contains(&self.cursor.x)
-                    {
+                for (cpt, (str, seg)) in lbr.span().enumerate() {
+                    if cur.is_none() && lpt == self.cursor.y && seg.contains(&self.cursor.x) {
                         match action {
                             Action::Right
                                 if yet && self.cursor.x + 1 < self.buffer.cols(self.cursor.y) =>
                             {
-                                self.cursor.x = end;
+                                self.cursor.x = seg.end;
                                 yet = false; // cur will be determined by the next iteration
                             }
                             Action::Left if 0 < self.cursor.x => {
-                                self.cursor.x = if self.cursor.x > bgn { bgn } else { bgn_pre };
+                                self.cursor.x = if self.cursor.x > seg.start {
+                                    seg.start
+                                } else {
+                                    bgn_pre
+                                };
                                 cur = Some(pos_pre);
                             }
                             _ => cur = Some(pos),
@@ -230,9 +242,9 @@ impl Editor {
 
                     // save for Action::Left
                     pos_pre = pos;
-                    bgn_pre = bgn;
+                    bgn_pre = seg.start;
 
-                    pos.x += *wid as usize;
+                    pos.x += seg.len();
                     if pos.x >= self.scrsiz.width {
                         pos.x = 0;
                         pos.y += 1;
@@ -240,8 +252,7 @@ impl Editor {
                             break;
                         }
                     }
-                    bgn = end;
-                    ptr += *len as usize;
+                    end = str.end;
                 }
                 if cur.is_none()
                     && lpt == self.cursor.y
@@ -250,7 +261,7 @@ impl Editor {
                     cur = Some(pos)
                 }
                 if all {
-                    out.extend(&lbr.text.as_slice()[..ptr]);
+                    out.extend(&lbr.text.as_slice()[..end]);
                 }
                 pos.y += 1;
                 if pos.y >= self.scrsiz.height {
