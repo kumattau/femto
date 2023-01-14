@@ -166,7 +166,12 @@ struct Editor {
 }
 
 impl Editor {
-    fn draw(&mut self, action: Action) -> Result<()> {
+    fn draw(&mut self, action: Vec<Action>) -> Result<()> {
+        if action.is_empty() {
+            return Ok(());
+        }
+        let action = action[0];
+
         let mut all = false;
 
         if action == Action::Full {
@@ -213,7 +218,7 @@ impl Editor {
                 pos.x = 0;
                 let mut end = 0;
 
-                let mut bgn_pre = 0;
+                let mut stt_pre = 0;
                 let mut pos_pre = pos;
                 for (cpt, (str, seg)) in lbr.span().enumerate() {
                     if cur.is_none() && lpt == self.cursor.y && seg.contains(&self.cursor.x) {
@@ -225,11 +230,7 @@ impl Editor {
                                 fix = true; // cur will be determined by the next iteration
                             }
                             Action::Left if 0 < self.cursor.x => {
-                                self.cursor.x = if self.cursor.x > seg.start {
-                                    seg.start
-                                } else {
-                                    bgn_pre
-                                };
+                                self.cursor.x = stt_pre;
                                 cur = Some(pos_pre);
                             }
                             _ => cur = Some(pos),
@@ -244,7 +245,7 @@ impl Editor {
 
                     // save for Action::Left
                     pos_pre = pos;
-                    bgn_pre = seg.start;
+                    stt_pre = seg.start;
 
                     pos.x += seg.len();
                     if pos.x >= self.scrsiz.width {
@@ -309,11 +310,12 @@ fn main() -> Result<()> {
         editor.buffer.load(path)?;
     }
     Screen::init()?;
-    editor.draw(Action::Resize(Screen::size().unwrap()))?;
+    editor.draw(vec![Action::Resize(Screen::size().unwrap())])?;
     loop {
+        let mut action = vec![];
         #[allow(clippy::single_match)]
         #[allow(clippy::collapsible_match)]
-        let action = match event::read()? {
+        match event::read()? {
             Event::Key(event) => match event {
                 KeyEvent {
                     modifiers: KeyModifiers::CONTROL,
@@ -321,27 +323,26 @@ fn main() -> Result<()> {
                     ..
                 } => match code {
                     KeyCode::Char('c') => break,
-                    KeyCode::Char('s') => {
-                        editor.buffer.save(path)?;
-                        continue;
-                    }
-                    _ => continue,
+                    KeyCode::Char('s') => editor.buffer.save(path)?,
+                    _ => {}
                 },
                 KeyEvent {
                     modifiers: KeyModifiers::NONE,
                     code,
                     ..
                 } => match code {
-                    KeyCode::Up => Action::Up,
-                    KeyCode::Down => Action::Down,
-                    KeyCode::Left => Action::Left,
-                    KeyCode::Right => Action::Right,
-                    _ => Action::Full,
+                    KeyCode::Up => action.push(Action::Up),
+                    KeyCode::Down => action.push(Action::Down),
+                    KeyCode::Left => action.push(Action::Left),
+                    KeyCode::Right => action.push(Action::Right),
+                    _ => action.push(Action::Full),
                 },
-                _ => continue,
+                _ => {}
             },
-            Event::Resize(cols, rows) => Action::Resize(Size::new(cols as _, rows as _)),
-            _ => continue,
+            Event::Resize(cols, rows) => {
+                action.push(Action::Resize(Size::new(cols as _, rows as _)))
+            }
+            _ => {}
         };
         editor.draw(action)?;
     }
