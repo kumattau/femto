@@ -186,26 +186,23 @@ impl Editor {
             }
         }
 
-        let mut buf = all
+        let mut out = all
             .then(|| Vec::<u8>::with_capacity(self.colrow.width * self.colrow.height * 4))
             .unwrap_or_default();
 
         let mut cur: Option<Point2D<usize, U>> = None;
         'outer: while cur.is_none() {
-            buf.clear();
+            out.clear();
             let mut yet = true;
 
-            let mut row = 0;
+            let mut pos = Point2D::<usize, U>::new(0, 0);
             for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
-                let mut col = 0;
-
-                let mut ptr = 0;
+                pos.x = 0;
                 let mut bgn = 0;
+                let mut ptr = 0;
 
-                let mut col_pre = col;
-                let mut row_pre = row;
+                let mut pos_pre = pos;
                 let mut bgn_pre = bgn;
-
                 for (cpt, (len, wid)) in lbr.span.iter().enumerate() {
                     let end = bgn + *wid as usize;
                     if cur.is_none() && lpt == self.cursor.y && (bgn..end).contains(&self.cursor.x)
@@ -219,9 +216,9 @@ impl Editor {
                             }
                             Action::Left if 0 < self.cursor.x => {
                                 self.cursor.x = if self.cursor.x > bgn { bgn } else { bgn_pre };
-                                cur = Some(Point2D::new(col_pre, row_pre));
+                                cur = Some(pos_pre);
                             }
-                            _ => cur = Some(Point2D::new(col, row)),
+                            _ => cur = Some(pos),
                         }
                     }
                     if cur.is_some() && !all {
@@ -232,15 +229,14 @@ impl Editor {
                     }
 
                     // save for Action::Left
-                    col_pre = col;
-                    row_pre = row;
+                    pos_pre = pos;
                     bgn_pre = bgn;
 
-                    col += *wid as usize;
-                    if col >= self.colrow.width {
-                        col = 0;
-                        row += 1;
-                        if row >= self.colrow.height {
+                    pos.x += *wid as usize;
+                    if pos.x >= self.colrow.width {
+                        pos.x = 0;
+                        pos.y += 1;
+                        if pos.y >= self.colrow.height {
                             break;
                         }
                     }
@@ -251,17 +247,17 @@ impl Editor {
                     && lpt == self.cursor.y
                     && (Action::Up == action || Action::Down == action)
                 {
-                    cur = Some(Point2D::new(col, row));
+                    cur = Some(pos)
                 }
                 if all {
-                    buf.extend(&lbr.text.as_slice()[..ptr]);
+                    out.extend(&lbr.text.as_slice()[..ptr]);
                 }
-                row += 1;
-                if row >= self.colrow.height {
+                pos.y += 1;
+                if pos.y >= self.colrow.height {
                     break;
                 }
                 if all {
-                    buf.extend(b"\r\n");
+                    out.extend(b"\r\n");
                 }
             }
             if cur.is_some() {
@@ -278,7 +274,7 @@ impl Editor {
                 cursor::Hide,
                 terminal::Clear(terminal::ClearType::All),
                 cursor::MoveTo(0, 0),
-                Print(unsafe { std::str::from_utf8_unchecked(&buf) }),
+                Print(unsafe { std::str::from_utf8_unchecked(&out) }),
                 cursor::MoveTo(cur.x as _, cur.y as _),
                 cursor::Show
             )?;
