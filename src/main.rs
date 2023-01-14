@@ -148,7 +148,7 @@ impl Screen {
 struct Editor {
     offset: usize,
     buffer: Buffer,
-    colrow: Size2D<usize, U>,
+    scrsiz: Size2D<usize, U>,
     cursor: Point2D<usize, U>,
 }
 
@@ -160,8 +160,8 @@ impl Editor {
             all = true;
         }
 
-        if let Action::Resize(colrow) = action {
-            self.colrow = colrow;
+        if let Action::Resize(scrsiz) = action {
+            self.scrsiz = scrsiz;
             all = true;
         }
 
@@ -177,8 +177,8 @@ impl Editor {
         {
             let mut offset = self.offset;
             offset = offset.min(self.cursor.y);
-            if self.cursor.y + 1 >= self.colrow.height {
-                offset = offset.max(self.cursor.y + 1 - self.colrow.height);
+            if self.cursor.y + 1 >= self.scrsiz.height {
+                offset = offset.max(self.cursor.y + 1 - self.scrsiz.height);
             }
             if self.offset != offset {
                 self.offset = offset;
@@ -187,7 +187,7 @@ impl Editor {
         }
 
         let mut out = all
-            .then(|| Vec::<u8>::with_capacity(self.colrow.width * self.colrow.height * 4))
+            .then(|| Vec::<u8>::with_capacity(self.scrsiz.width * self.scrsiz.height * 4))
             .unwrap_or_default();
 
         let mut cur: Option<Point2D<usize, U>> = None;
@@ -233,10 +233,10 @@ impl Editor {
                     bgn_pre = bgn;
 
                     pos.x += *wid as usize;
-                    if pos.x >= self.colrow.width {
+                    if pos.x >= self.scrsiz.width {
                         pos.x = 0;
                         pos.y += 1;
-                        if pos.y >= self.colrow.height {
+                        if pos.y >= self.scrsiz.height {
                             break;
                         }
                     }
@@ -253,7 +253,7 @@ impl Editor {
                     out.extend(&lbr.text.as_slice()[..ptr]);
                 }
                 pos.y += 1;
-                if pos.y >= self.colrow.height {
+                if pos.y >= self.scrsiz.height {
                     break;
                 }
                 if all {
