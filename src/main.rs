@@ -17,7 +17,9 @@ use euclid::{Point2D, Size2D};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-struct U; // dummy Unit for euclid
+struct U;
+type Size = Size2D<usize, U>;
+type Point = Point2D<usize, U>;
 
 #[derive(Debug, Parser)]
 #[clap(name = env!("CARGO_PKG_NAME"), version, author, about)]
@@ -46,7 +48,7 @@ enum Action {
     Down,
     Left,
     Right,
-    Resize(Size2D<usize, U>),
+    Resize(Size),
 }
 
 #[derive(Debug, Default)]
@@ -149,9 +151,9 @@ impl Screen {
         Ok(())
     }
 
-    fn size() -> Result<Size2D<usize, U>> {
+    fn size() -> Result<Size> {
         let (cols, rows) = terminal::size()?;
-        Ok(Size2D::new(cols as _, rows as _))
+        Ok(Size::new(cols as _, rows as _))
     }
 }
 
@@ -159,8 +161,8 @@ impl Screen {
 struct Editor {
     offset: usize,
     buffer: Buffer,
-    scrsiz: Size2D<usize, U>,
-    cursor: Point2D<usize, U>,
+    scrsiz: Size,
+    cursor: Point,
 }
 
 impl Editor {
@@ -201,12 +203,12 @@ impl Editor {
             .then(|| Vec::<u8>::with_capacity(self.scrsiz.width * self.scrsiz.height * 4))
             .unwrap_or_default();
 
-        let mut cur: Option<Point2D<usize, U>> = None;
+        let mut cur: Option<Point> = None;
         'outer: loop {
             out.clear();
             let mut yet = true;
 
-            let mut pos = Point2D::<usize, U>::new(0, 0);
+            let mut pos = Point::new(0, 0);
             for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
                 pos.x = 0;
                 let mut end = 0;
@@ -338,9 +340,7 @@ fn main() -> Result<()> {
                 },
                 _ => continue,
             },
-            Event::Resize(cols, rows) => {
-                Action::Resize(Size2D::<usize, U>::new(cols as _, rows as _))
-            }
+            Event::Resize(cols, rows) => Action::Resize(Size::new(cols as _, rows as _)),
             _ => continue,
         };
         editor.draw(action)?;
