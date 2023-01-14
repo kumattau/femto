@@ -12,7 +12,7 @@ use crossterm::{
     style::Print,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use euclid::Size2D;
+use euclid::{Point2D, Size2D};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -46,12 +46,6 @@ enum Action {
     Left,
     Right,
     Resize(Size2D<usize, U>),
-}
-
-#[derive(Debug, Default)]
-struct Cursor {
-    col: usize,
-    row: usize,
 }
 
 #[derive(Debug, Default)]
@@ -154,8 +148,8 @@ impl Screen {
 struct Editor {
     offset: usize,
     buffer: Buffer,
-    cursor: Cursor,
     colrow: Size2D<usize, U>,
+    cursor: Point2D<usize, U>,
 }
 
 impl Editor {
@@ -176,8 +170,8 @@ impl Editor {
         }
         let (cols, rows) = (self.colrow.width, self.colrow.height);
 
-        let mut cur_col = cursor.col;
-        let mut cur_row = cursor.row;
+        let mut cur_col = cursor.x;
+        let mut cur_row = cursor.y;
 
         match action {
             Action::Up if 0 < cur_row => cur_row -= 1,
@@ -195,7 +189,7 @@ impl Editor {
             all = true;
         }
 
-        let mut cur = None;
+        let mut cur: Option<Point2D<usize, U>> = None;
         let mut buf = all
             .then(|| Vec::<u8>::with_capacity(cols * rows * 4))
             .unwrap_or_default();
@@ -225,12 +219,9 @@ impl Editor {
                             }
                             Action::Left if 0 < cur_col => {
                                 cur_col = if cur_col > bgn { bgn } else { bgn_pre };
-                                cur = Some(Cursor {
-                                    col: col_pre,
-                                    row: row_pre,
-                                });
+                                cur = Some(Point2D::new(col_pre, row_pre));
                             }
-                            _ => cur = Some(Cursor { col, row }),
+                            _ => cur = Some(Point2D::new(col, row)),
                         }
                     }
                     if cur.is_some() && !all {
@@ -257,7 +248,7 @@ impl Editor {
                     && lpt == cur_row
                     && (Action::Up == action || Action::Down == action)
                 {
-                    cur = Some(Cursor { col, row });
+                    cur = Some(Point2D::new(col, row));
                 }
                 if all {
                     buf.extend(&lbr.text.as_slice()[..ptr]);
@@ -285,16 +276,16 @@ impl Editor {
                 terminal::Clear(terminal::ClearType::All),
                 cursor::MoveTo(0, 0),
                 Print(unsafe { std::str::from_utf8_unchecked(&buf) }),
-                cursor::MoveTo(cur.col as _, cur.row as _),
+                cursor::MoveTo(cur.x as _, cur.y as _),
                 cursor::Show
             )?;
         } else {
-            execute!(stdout(), cursor::MoveTo(cur.col as _, cur.row as _),)?;
+            execute!(stdout(), cursor::MoveTo(cur.x as _, cur.y as _),)?;
         }
 
         *offset = off;
-        cursor.col = cur_col;
-        cursor.row = cur_row;
+        cursor.x = cur_col;
+        cursor.y = cur_row;
 
         Ok(())
     }
