@@ -221,7 +221,7 @@ impl Editor {
                 let mut stt_pre = 0;
                 let mut pos_pre = pos;
                 for (cpt, (str, seg)) in lbr.span().enumerate() {
-                    if cur.is_none() && lpt == self.cursor.y && seg.contains(&self.cursor.x) {
+                    if lpt == self.cursor.y && cur.is_none() && seg.contains(&self.cursor.x) {
                         match action {
                             Action::Right
                                 if !fix && self.cursor.x + 1 < self.buffer.cols(self.cursor.y) =>
@@ -257,8 +257,8 @@ impl Editor {
                     }
                     end = str.end;
                 }
-                if cur.is_none()
-                    && lpt == self.cursor.y
+                if lpt == self.cursor.y
+                    && cur.is_none()
                     && (Action::Up == action || Action::Down == action)
                 {
                     cur = Some(pos)
