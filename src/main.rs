@@ -282,11 +282,19 @@ impl Editor {
 
         // Step2: output
         let out = {
+            // special case
+            let mut col_pre = 0;
+
             let mut out = Vec::<u8>::with_capacity(self.scrsiz.area() * 4);
             let mut pos = Point::new(0, 0);
             #[allow(unused_variables)]
             for (l, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
                 let mut eol = 0;
+
+                // special case
+                if col_pre == self.scrsiz.width + 1 {
+                    pos.y -= 1;
+                }
 
                 for (c, (str, seg)) in lbr.span().enumerate() {
                     if c == lbr.span.len() - 1 {
@@ -314,6 +322,9 @@ impl Editor {
                 }
 
                 out.extend(b"\r\n");
+
+                // special case
+                col_pre = lbr.cols;
             }
             out
         };
