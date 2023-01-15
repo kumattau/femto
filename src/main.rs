@@ -156,8 +156,8 @@ impl Screen {
 struct Editor {
     offset: usize,
     buffer: Buffer,
-    scrsiz: Size,
     cursor: Point,
+    scrsiz: Size,
 }
 
 impl Editor {
@@ -177,11 +177,7 @@ impl Editor {
         }
         let action = action[0];
 
-        let mut all = false;
-
-        if action == Action::Full {
-            all = true;
-        }
+        let mut all = action == Action::Full;
 
         if let Action::Resize(scrsiz) = action {
             if self.scrsiz != scrsiz {
@@ -199,28 +195,35 @@ impl Editor {
             _ => {}
         }
 
-        {
-            let mut offset = self.offset.min(self.cursor.y);
-            if self.cursor.y + 1 >= self.scrsiz.height {
-                offset = offset.max(self.cursor.y + 1 - self.scrsiz.height);
-            }
-            if self.offset != offset {
-                self.offset = offset;
-                all = true;
-            }
-        }
-
         // Step1: cursor
-        let mut cur: Option<Point> = None;
-        'outer: loop {
-            let mut fix = false;
+        let mut offset = self.offset.min(self.cursor.y);
+        if self.cursor.y + 1 >= self.scrsiz.height {
+            offset = offset.max(self.cursor.y + 1 - self.scrsiz.height);
+        }
+        let cur = 'outer: loop {
             let mut pos = Point::new(0, 0);
-            for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
-                pos.x = 0;
-                let mut stt_pre = 0;
+
+            // special case
+            let mut col_pre = 0;
+
+            for (l, lbr) in self.buffer.line.iter().enumerate().skip(offset) {
+                let mut fix = false;
+                let mut sst_pre = 0;
                 let mut pos_pre = pos;
-                for (cpt, (_, seg)) in lbr.span().enumerate() {
-                    if lpt == self.cursor.y && cur.is_none() && seg.contains(&self.cursor.x) {
+
+                // special case
+                if col_pre == self.scrsiz.width + 1 {
+                    pos.y -= 1;
+                }
+
+                for (c, (_, seg)) in lbr.span().enumerate() {
+                    /*
+                    if seg.is_empty() {
+                        continue;
+                    }
+                    */
+
+                    if l == self.cursor.y && seg.contains(&self.cursor.x) {
                         match action {
                             Action::Right
                                 if !fix && self.cursor.x + 1 < self.buffer.cols(self.cursor.y) =>
@@ -229,24 +232,20 @@ impl Editor {
                                 fix = true; // cur will be determined by the next iteration
                             }
                             Action::Left if 0 < self.cursor.x => {
-                                self.cursor.x = stt_pre;
-                                cur = Some(pos_pre);
-                                break 'outer;
+                                self.cursor.x = sst_pre;
+                                break 'outer pos_pre;
                             }
-                            _ => {
-                                cur = Some(pos);
-                                break 'outer;
-                            }
+                            _ => break 'outer pos,
                         }
                     }
 
-                    if cpt == lbr.span.len() - 1 {
+                    if c == lbr.span.len() - 1 {
                         break;
                     }
 
                     // save for Action::Left
                     pos_pre = pos;
-                    stt_pre = seg.start;
+                    sst_pre = seg.start;
 
                     pos.x += seg.len();
                     if pos.x >= self.scrsiz.width {
@@ -258,38 +257,45 @@ impl Editor {
                     }
                 }
 
-                if lpt == self.cursor.y
-                    && cur.is_none()
-                    && (Action::Up == action || Action::Down == action)
-                {
-                    cur = Some(pos);
-                    break 'outer;
+                if l == self.cursor.y && matches!(action, Action::Up | Action::Down) {
+                    break 'outer pos;
                 }
 
+                pos.x = 0;
                 pos.y += 1;
                 if pos.y >= self.scrsiz.height {
                     break;
                 }
+
+                // special case
+                col_pre = lbr.cols;
             }
-            self.offset += 1;
+            offset += 1;
+            all = true; // need for line-wrapped text
+        };
+        if self.offset != offset {
+            self.offset = offset;
             all = true;
         }
-        let cur = unsafe { cur.unwrap_unchecked() };
+
+        if !all {
+            execute!(stdout(), cursor::MoveTo(cur.x as _, cur.y as _),)?;
+            return Ok(());
+        }
 
         // Step2: output
-        let mut out = all
-            .then(|| Vec::<u8>::with_capacity(self.scrsiz.width * self.scrsiz.height * 4))
-            .unwrap_or_default();
-        if all {
+        let out = {
+            let mut out = Vec::<u8>::with_capacity(self.scrsiz.area() * 4);
             let mut pos = Point::new(0, 0);
-            for (_, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
-                pos.x = 0;
+            #[allow(unused_variables)]
+            for (l, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
                 let mut eol = 0;
 
-                for (cpt, (str, seg)) in lbr.span().enumerate() {
-                    if cpt == lbr.span.len() - 1 {
+                for (c, (str, seg)) in lbr.span().enumerate() {
+                    if c == lbr.span.len() - 1 {
                         break;
                     }
+
                     pos.x += seg.len();
                     if pos.x >= self.scrsiz.width {
                         pos.x = 0;
@@ -298,31 +304,32 @@ impl Editor {
                             break;
                         }
                     }
+
                     eol = str.end;
                 }
+
                 out.extend(&lbr.data.as_slice()[..eol]);
+
+                pos.x = 0;
                 pos.y += 1;
                 if pos.y >= self.scrsiz.height {
                     break;
                 }
+
                 out.extend(b"\r\n");
             }
-        }
+            out
+        };
 
-        if all {
-            execute!(
-                stdout(),
-                cursor::Hide,
-                terminal::Clear(terminal::ClearType::All),
-                cursor::MoveTo(0, 0),
-                Print(unsafe { std::str::from_utf8_unchecked(&out) }),
-                cursor::MoveTo(cur.x as _, cur.y as _),
-                cursor::Show
-            )?;
-        } else {
-            execute!(stdout(), cursor::MoveTo(cur.x as _, cur.y as _),)?;
-        }
-
+        execute!(
+            stdout(),
+            cursor::Hide,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, 0),
+            Print(unsafe { std::str::from_utf8_unchecked(&out) }),
+            cursor::MoveTo(cur.x as _, cur.y as _),
+            cursor::Show
+        )?;
         Ok(())
     }
 }
