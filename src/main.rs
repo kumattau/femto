@@ -210,23 +210,16 @@ impl Editor {
             }
         }
 
-        let mut out = all
-            .then(|| Vec::<u8>::with_capacity(self.scrsiz.width * self.scrsiz.height * 4))
-            .unwrap_or_default();
-
+        // Step1: cursor
         let mut cur: Option<Point> = None;
         'outer: loop {
-            out.clear();
             let mut fix = false;
-
             let mut pos = Point::new(0, 0);
             for (lpt, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
                 pos.x = 0;
-                let mut eol = 0;
-
                 let mut stt_pre = 0;
                 let mut pos_pre = pos;
-                for (cpt, (str, seg)) in lbr.span().enumerate() {
+                for (cpt, (_, seg)) in lbr.span().enumerate() {
                     if lpt == self.cursor.y && cur.is_none() && seg.contains(&self.cursor.x) {
                         match action {
                             Action::Right
@@ -238,13 +231,15 @@ impl Editor {
                             Action::Left if 0 < self.cursor.x => {
                                 self.cursor.x = stt_pre;
                                 cur = Some(pos_pre);
+                                break 'outer;
                             }
-                            _ => cur = Some(pos),
+                            _ => {
+                                cur = Some(pos);
+                                break 'outer;
+                            }
                         }
                     }
-                    if cur.is_some() && !all {
-                        break 'outer;
-                    }
+
                     if cpt == lbr.span.len() - 1 {
                         break;
                     }
@@ -261,32 +256,58 @@ impl Editor {
                             break;
                         }
                     }
-                    eol = str.end;
                 }
+
                 if lpt == self.cursor.y
                     && cur.is_none()
                     && (Action::Up == action || Action::Down == action)
                 {
-                    cur = Some(pos)
+                    cur = Some(pos);
+                    break 'outer;
                 }
-                if all {
-                    out.extend(&lbr.data.as_slice()[..eol]);
-                }
+
                 pos.y += 1;
                 if pos.y >= self.scrsiz.height {
                     break;
                 }
-                if all {
-                    out.extend(b"\r\n");
-                }
-            }
-            if cur.is_some() {
-                break;
             }
             self.offset += 1;
             all = true;
         }
         let cur = unsafe { cur.unwrap_unchecked() };
+
+        // Step2: output
+        let mut out = all
+            .then(|| Vec::<u8>::with_capacity(self.scrsiz.width * self.scrsiz.height * 4))
+            .unwrap_or_default();
+        if all {
+            let mut pos = Point::new(0, 0);
+            for (_, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
+                pos.x = 0;
+                let mut eol = 0;
+
+                for (cpt, (str, seg)) in lbr.span().enumerate() {
+                    if cpt == lbr.span.len() - 1 {
+                        break;
+                    }
+                    pos.x += seg.len();
+                    if pos.x >= self.scrsiz.width {
+                        pos.x = 0;
+                        pos.y += 1;
+                        if pos.y >= self.scrsiz.height {
+                            break;
+                        }
+                    }
+                    eol = str.end;
+                }
+                out.extend(&lbr.data.as_slice()[..eol]);
+                pos.y += 1;
+                if pos.y >= self.scrsiz.height {
+                    break;
+                }
+                out.extend(b"\r\n");
+            }
+        }
 
         if all {
             execute!(
