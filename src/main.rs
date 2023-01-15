@@ -124,6 +124,20 @@ impl Buffer {
     fn cols(&self, row: usize) -> usize {
         self.line[row].cols
     }
+
+    #[allow(dead_code)]
+    fn data(&self, row: usize) -> &Vec<u8> {
+        &self.line[row].data
+    }
+
+    #[allow(dead_code)]
+    fn span(&self, row: usize) -> impl Iterator<Item = (Range<usize>, Range<usize>)> + '_ {
+        self.line[row].span.iter().scan((0..0, 0..0), |item, next| {
+            item.0 = item.0.end..item.0.end + next.0 as usize;
+            item.1 = item.1.end..item.1.end + next.1 as usize;
+            Some(item.clone())
+        })
+    }
 }
 
 impl Default for Buffer {
@@ -246,17 +260,18 @@ impl Editor {
             let mut pos = Point::new(0, 0);
 
             // special case
-            let mut col_pre = 0;
+            let mut col = 0;
 
             for (l, lbr) in self.buffer.line.iter().enumerate().skip(offset) {
+                // special case
+                if col == self.scrsiz.width + 1 {
+                    pos.y -= 1;
+                }
+                col = lbr.cols;
+
                 let mut fix = false;
                 let mut sst_pre = 0;
                 let mut pos_pre = pos;
-
-                // special case
-                if col_pre == self.scrsiz.width + 1 {
-                    pos.y -= 1;
-                }
 
                 for (c, (_, seg)) in lbr.span().enumerate() {
                     // skip 0-width segment
@@ -305,9 +320,6 @@ impl Editor {
                 if pos.y >= self.scrsiz.height {
                     break;
                 }
-
-                // special case
-                col_pre = lbr.cols;
             }
             offset += 1;
             all = true; // need for line-wrapped text
@@ -324,20 +336,11 @@ impl Editor {
 
         // Step2: output
         let out = {
-            // special case
-            let mut col_pre = 0;
-
             let mut out = Vec::<u8>::with_capacity(self.scrsiz.area() * 4);
             let mut pos = Point::new(0, 0);
             #[allow(unused_variables)]
             for (l, lbr) in self.buffer.line.iter().enumerate().skip(self.offset) {
                 let mut eol = 0;
-
-                // special case
-                if col_pre == self.scrsiz.width + 1 {
-                    pos.y -= 1;
-                }
-
                 for (c, (str, seg)) in lbr.span().enumerate() {
                     if c == lbr.span.len() - 1 {
                         break;
@@ -364,9 +367,6 @@ impl Editor {
                 }
 
                 out.extend(b"\r\n");
-
-                // special case
-                col_pre = lbr.cols;
             }
             out
         };
