@@ -42,6 +42,48 @@ fn is_linebreak(str: &str) -> bool {
     )
 }
 
+#[allow(dead_code)]
+#[allow(clippy::type_complexity)]
+fn rect(
+    buf: &Buffer,
+    off: usize,
+    scr: Size,
+    fun: fn(Point, Point, usize, &Range<usize>, &Range<usize>, &[u8]) -> i32,
+) {
+    let mut phy = Point::new(0, 0);
+
+    let mut col = 0;
+    'outer: for (y, line) in buf.line.iter().enumerate().skip(off) {
+        // special case
+        if col == scr.width + 1 {
+            phy.y -= 1;
+        }
+        col = line.cols;
+        for (x, (bin, seg)) in line.span().enumerate() {
+            let log = Point::new(x, y);
+            match fun(phy, log, col, &bin, &seg, &line.data) {
+                1 => break,
+                2 => break 'outer,
+                3 => continue,
+                _ => {}
+            }
+            phy.x += seg.len();
+            if phy.x >= scr.width {
+                phy.x = 0;
+                phy.y += 1;
+                if phy.y >= scr.height {
+                    break;
+                }
+            }
+        }
+        phy.x = 0;
+        phy.y += 1;
+        if phy.y >= scr.height {
+            break;
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum Action {
     Full,
