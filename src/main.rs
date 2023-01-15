@@ -217,17 +217,14 @@ impl Editor {
                 }
 
                 for (c, (_, seg)) in lbr.span().enumerate() {
-                    /*
+                    // skip 0-width segment
                     if seg.is_empty() {
                         continue;
                     }
-                    */
 
                     if l == self.cursor.y && seg.contains(&self.cursor.x) {
                         match action {
-                            Action::Right
-                                if !fix && self.cursor.x + 1 < lbr.cols =>
-                            {
+                            Action::Right if !fix && self.cursor.x + 1 < lbr.cols => {
                                 self.cursor.x = seg.end;
                                 fix = true; // cur will be determined by the next iteration
                             }
