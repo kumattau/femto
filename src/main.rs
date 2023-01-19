@@ -269,9 +269,9 @@ impl Editor {
                 MoveTo(marker.x as _, marker.y as _),
                 Show,
             )?;
-        } else if offset < self.offset {
+        } else if offset != self.offset {
             self.output.clear();
-            let line = &buffer.line[offset];
+            let line = &buffer.line[if offset < self.offset { offset } else { bottom }];
             let mut pc = Point::new(0, 0);
             let mut eol = 0;
             // before br or eof
@@ -286,37 +286,23 @@ impl Editor {
             self.output.extend(&line.data[..eol]);
             pc.y += 1;
 
-            execute!(
-                stdout(),
-                ScrollDown(pc.y as _),
-                MoveTo(0, 0),
-                Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
-                MoveTo(marker.x as _, marker.y as _),
-            )?;
-        } else if offset > self.offset {
-            self.output.clear();
-            let line = &buffer.line[bottom];
-            let mut pc = Point::new(0, 0);
-            let mut eol = 0;
-            // before br or eof
-            for (byte, char) in line.span().take(line.span.len() - 1) {
-                pc.x += char.len();
-                if pc.x >= screen.width {
-                    pc.x = 0;
-                    pc.y += 1;
-                }
-                eol = byte.end;
+            if offset < self.offset {
+                execute!(
+                    stdout(),
+                    ScrollDown(pc.y as _),
+                    MoveTo(0, 0),
+                    Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
+                    MoveTo(marker.x as _, marker.y as _),
+                )?;
+            } else {
+                execute!(
+                    stdout(),
+                    ScrollUp(pc.y as _),
+                    MoveTo(0, (screen.height - pc.y) as _),
+                    Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
+                    MoveTo(marker.x as _, marker.y as _),
+                )?;
             }
-            self.output.extend(&line.data[..eol]);
-            pc.y += 1;
-
-            execute!(
-                stdout(),
-                ScrollUp(pc.y as _),
-                MoveTo(0, (screen.height - pc.y) as _),
-                Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
-                MoveTo(marker.x as _, marker.y as _),
-            )?;
         } else {
             execute!(stdout(), MoveTo(marker.x as _, marker.y as _))?;
         }
