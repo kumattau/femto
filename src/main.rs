@@ -7,14 +7,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     style::Print,
-    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, ScrollDown, ScrollUp,
+    },
 };
 use euclid::{Point2D, Size2D, UnknownUnit};
 use unicode_segmentation::UnicodeSegmentation;
@@ -45,6 +47,7 @@ fn is_linebreak(str: &str) -> bool {
 
 #[derive(PartialEq, Copy, Clone)]
 enum Action {
+    Redraw,
     Resize(Size),
     Up,
     Down,
@@ -64,6 +67,12 @@ impl LineBr {
             item.1 = item.1.end..item.1.end + next.1 as usize;
             Some(item.clone())
         })
+    }
+    fn eolb(&self) -> usize {
+        unsafe {
+            self.span.iter().fold(0, |x, y| x + y.0 as usize)
+                - self.span.last().unwrap_unchecked().0 as usize
+        }
     }
 }
 
@@ -126,6 +135,7 @@ struct Editor {
     output: Vec<u8>,
     cursor: Point,
     offset: usize,
+    status: String,
 }
 
 impl Editor {
@@ -143,12 +153,12 @@ impl Editor {
         }
         let action = action[0];
 
-        let mut full = false;
+        let mut redraw = action == Action::Redraw;
 
         if let Action::Resize(screen) = action {
             if self.screen != screen {
                 self.screen = screen;
-                full = true;
+                redraw = true;
             }
         }
 
@@ -158,16 +168,8 @@ impl Editor {
         let mut offset = self.offset;
         let mut cursor = self.cursor;
         match action {
-            Action::Up => {
-                if 0 < cursor.y {
-                    cursor.y -= 1;
-                }
-            }
-            Action::Down => {
-                if cursor.y + 1 < buffer.rows() {
-                    cursor.y += 1;
-                }
-            }
+            Action::Up if 0 < cursor.y => cursor.y -= 1,
+            Action::Down if cursor.y + 1 < buffer.rows() => cursor.y += 1,
             _ => {}
         }
 
@@ -176,102 +178,142 @@ impl Editor {
             offset = offset.max(cursor.y + 1 - screen.height);
         }
 
-        let (marker, cursor) = 'outer: loop {
-            let mut p = Point::new(0, 0);
-            'inner: for (y, line) in buffer.line.iter().enumerate().skip(offset) {
-                let mut n = false;
-                let mut q = p;
-                let mut r = 0;
-                let mut s = r;
-                for (x, (_, char)) in line.span().enumerate() {
-                    if n && p != q {
-                        break 'outer (Point::new(p.x, p.y), Point::new(r, y));
+        let (marker, cursor) = 'done: loop {
+            let mut pc = Point::new(0, 0);
+            let mut ex = false; // eat-newline-glitch
+            'rows: for (y, line) in buffer.line.iter().enumerate().skip(offset) {
+                let mut pp = pc;
+                let mut lc = Point::new(0, y);
+                let mut lp = lc;
+                let mut nx = false; // Action::Right
+                'cols: for (i, (_, char)) in line.span().enumerate() {
+                    if nx && pc != pp {
+                        break 'done (pc, lc);
                     }
-                    if cursor.y == y && (r..r + char.len()).contains(&cursor.x) {
+                    if cursor.y == lc.y && (lc.x..lc.x + char.len()).contains(&cursor.x) {
                         match action {
-                            Action::Left => break 'outer (Point::new(q.x, q.y), Point::new(s, y)),
-                            Action::Right => n = true,
-                            _ => break 'outer (Point::new(p.x, p.y), Point::new(r, y)),
+                            Action::Right => nx = true,
+                            Action::Left => break 'done (pp, lp),
+                            _ => break 'done (pc, lc),
                         }
                     }
-                    if x + 1 == line.span.len() {
-                        break;
+                    // br or eof
+                    if i + 1 == line.span.len() {
+                        if lc.x == screen.width {
+                            ex = true; // eat-newline-glitch
+                        }
+                        break 'cols;
                     }
-                    if p != q {
-                        q = p;
-                        s = r;
-                    }
-                    r += char.len();
-                    p.x += char.len();
-                    if p.x >= screen.width {
-                        p.x = 0;
-                        p.y += 1;
-                        if p.y >= screen.height {
-                            break 'inner;
+                    let len = char.len();
+                    if len > 0 {
+                        if pc != pp {
+                            pp = pc;
+                            lp = lc;
+                        }
+                        if ex {
+                            pc.y -= 1; // eat-newline-glitch
+                            ex = false;
+                        }
+                        lc.x += len;
+                        pc.x += len;
+                        if pc.x >= screen.width {
+                            pc.x = 0;
+                            pc.y += 1;
+                            if pc.y >= screen.height {
+                                break 'rows;
+                            }
                         }
                     }
                 }
-                if cursor.y == y {
+                if cursor.y == lc.y {
                     match action {
-                        Action::Left => break 'outer (Point::new(q.x, q.y), Point::new(s, y)),
-                        _ => break 'outer (Point::new(p.x, p.y), Point::new(cursor.x, y)),
+                        Action::Left => break 'done (pp, lp),
+                        _ => break 'done (pc, Point::new(cursor.x, lc.y)),
                     }
                 }
-                p.x = 0;
-                p.y += 1;
-                if p.y >= screen.height {
-                    break;
+                pc.x = 0;
+                pc.y += 1;
+                if pc.y >= screen.height {
+                    break 'rows;
                 }
             }
             offset += 1;
             if offset > buffer.line.len() {
-                panic!();
+                return Err(anyhow!(format!("cannot find cursor={:?}", cursor)));
             }
         };
 
+        let mut scroll = 0;
+
         if self.offset != offset {
-            full = true;
+            //redraw = true;
+            scroll = offset as isize - self.offset as isize;
+        }
+        if scroll > 0 {
+            redraw = true;
+        }
+        if scroll < 0 && offset == 0 {
+            redraw = true;
         }
 
-        if full {
+        self.status = format!("offset={:?}, scroll={:?}", offset, scroll);
+
+        if redraw {
             self.output.clear();
-            let s = self.screen;
-            let mut p = Point::new(0, 0);
-            for line in self.buffer.line.iter().skip(offset) {
+            let mut pc = Point::new(0, 0);
+            'rows: for line in self.buffer.line.iter().skip(offset) {
                 let mut eol = 0;
-                for (x, (byte, char)) in line.span().enumerate() {
-                    if x + 1 == line.span.len() {
-                        break;
+                'cols: for (i, (byte, char)) in line.span().enumerate() {
+                    // br or eof
+                    if i + 1 == line.span.len() {
+                        break 'cols;
                     }
-                    p.x += char.len();
-                    if p.x >= s.width {
-                        p.x = 0;
-                        p.y += 1;
-                        if p.y >= s.height {
-                            break;
+                    pc.x += char.len();
+                    if pc.x >= screen.width {
+                        pc.x = 0;
+                        pc.y += 1;
+                        if pc.y >= screen.height {
+                            break 'rows;
                         }
                     }
                     eol = byte.end;
                 }
                 self.output.extend(&line.data[..eol]);
-                p.x = 0;
-                p.y += 1;
-                if p.y >= s.height {
-                    break;
+                pc.x = 0;
+                pc.y += 1;
+                if pc.y >= screen.height {
+                    break 'rows;
                 }
                 self.output.extend(b"\r\n");
             }
+        } else if scroll < 0 {
+            self.output.clear();
+            let line = &buffer.line[offset - scroll.unsigned_abs()];
+            self.output.extend(&line.data[..line.eolb()]);
+            self.output.extend(b"\r\n");
         }
 
         self.offset = offset;
         self.cursor = cursor;
 
-        if full {
+        if redraw {
             execute!(
                 stdout(),
                 Hide,
                 MoveTo(0, 0),
                 Clear(ClearType::All),
+                Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
+                MoveTo(0, screen.height as u16 - 1),
+                Print(&self.status),
+                MoveTo(marker.x as _, marker.y as _),
+                Show,
+            )?;
+        } else if scroll > 0 {
+            execute!(stdout(), ScrollUp(scroll as _),)?;
+        } else if scroll < 0 {
+            execute!(
+                stdout(),
+                ScrollDown(scroll.unsigned_abs() as _),
                 Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
                 MoveTo(marker.x as _, marker.y as _),
                 Show,
