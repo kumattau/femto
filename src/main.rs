@@ -8,11 +8,13 @@ use std::{
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use crossterm::{
-    cursor::{Hide, MoveTo, RestorePosition, SavePosition, Show},
+    cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     style::Print,
-    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, ScrollDown},
+    terminal::{
+        self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, ScrollDown, ScrollUp,
+    },
 };
 
 use euclid::{Point2D, Size2D, UnknownUnit};
@@ -126,7 +128,6 @@ struct Editor {
     output: Vec<u8>,
     cursor: Point,
     offset: usize,
-    status: Option<String>,
 }
 
 impl Editor {
@@ -169,7 +170,7 @@ impl Editor {
             offset = offset.max(cursor.y + 1 - screen.height);
         }
 
-        let (marker, cursor) = 'done: loop {
+        let (marker, cursor, bottom) = 'done: loop {
             let mut pc = Point::new(0, 0);
             let mut ex = false; // eat-newline-glitch
             'rows: for (y, line) in buffer.line.iter().enumerate().skip(offset) {
@@ -179,13 +180,13 @@ impl Editor {
                 let mut nx = false; // Action::Right
                 'cols: for (i, (_, char)) in line.span().enumerate() {
                     if nx && pc != pp {
-                        break 'done (pc, lc);
+                        break 'done (pc, lc, y);
                     }
                     if cursor.y == lc.y && (lc.x..lc.x + char.len()).contains(&cursor.x) {
                         match action {
                             Action::Right => nx = true,
-                            Action::Left => break 'done (pp, lp),
-                            _ => break 'done (pc, lc),
+                            Action::Left => break 'done (pp, lp, y),
+                            _ => break 'done (pc, lc, y),
                         }
                     }
                     // br or eof
@@ -218,8 +219,8 @@ impl Editor {
                 }
                 if cursor.y == lc.y {
                     match action {
-                        Action::Left => break 'done (pp, lp),
-                        _ => break 'done (pc, Point::new(cursor.x, lc.y)),
+                        Action::Left => break 'done (pp, lp, y),
+                        _ => break 'done (pc, Point::new(cursor.x, lc.y), y),
                     }
                 }
                 pc.x = 0;
@@ -233,15 +234,6 @@ impl Editor {
                 return Err(anyhow!(format!("cannot find cursor={:?}", cursor)));
             }
         };
-
-        if offset > self.offset {
-            redraw = true;
-        }
-
-        self.status = Some(format!(
-            "offset={:?}, self.offset={:?}",
-            offset, self.offset
-        ));
 
         if redraw {
             self.output.clear();
@@ -293,27 +285,40 @@ impl Editor {
             }
             self.output.extend(&line.data[..eol]);
             pc.y += 1;
-            self.output.extend(b"\r\n");
 
             execute!(
                 stdout(),
                 ScrollDown(pc.y as _),
+                MoveTo(0, 0),
                 Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
                 MoveTo(marker.x as _, marker.y as _),
-                Show,
+            )?;
+        } else if offset > self.offset {
+            self.output.clear();
+            let line = &buffer.line[bottom];
+            let mut pc = Point::new(0, 0);
+            let mut eol = 0;
+            // before br or eof
+            for (byte, char) in line.span().take(line.span.len() - 1) {
+                pc.x += char.len();
+                if pc.x >= screen.width {
+                    pc.x = 0;
+                    pc.y += 1;
+                }
+                eol = byte.end;
+            }
+            self.output.extend(&line.data[..eol]);
+            pc.y += 1;
+
+            execute!(
+                stdout(),
+                ScrollUp(pc.y as _),
+                MoveTo(0, (screen.height - pc.y) as _),
+                Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
+                MoveTo(marker.x as _, marker.y as _),
             )?;
         } else {
             execute!(stdout(), MoveTo(marker.x as _, marker.y as _))?;
-        }
-
-        if let Some(status) = &self.status {
-            execute!(
-                stdout(),
-                SavePosition,
-                MoveTo(0, screen.height as u16 - 1),
-                Print(&status),
-                RestorePosition,
-            )?;
         }
 
         self.offset = offset;
