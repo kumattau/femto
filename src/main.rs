@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use core::fmt;
 use std::{
     io::{stdout, Write},
@@ -10,14 +8,13 @@ use std::{
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use crossterm::{
-    cursor::{Hide, MoveTo, Show},
+    cursor::{Hide, MoveTo, RestorePosition, SavePosition, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     style::Print,
-    terminal::{
-        self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, ScrollDown, ScrollUp,
-    },
+    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, ScrollDown},
 };
+
 use euclid::{Point2D, Size2D, UnknownUnit};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -67,12 +64,6 @@ impl LineBr {
             item.1 = item.1.end..item.1.end + next.1 as usize;
             Some(item.clone())
         })
-    }
-    fn eolb(&self) -> usize {
-        unsafe {
-            self.span.iter().fold(0, |x, y| x + y.0 as usize)
-                - self.span.last().unwrap_unchecked().0 as usize
-        }
     }
 }
 
@@ -135,7 +126,7 @@ struct Editor {
     output: Vec<u8>,
     cursor: Point,
     offset: usize,
-    status: String,
+    status: Option<String>,
 }
 
 impl Editor {
@@ -164,9 +155,9 @@ impl Editor {
 
         let screen = self.screen;
         let buffer = &self.buffer;
-
         let mut offset = self.offset;
         let mut cursor = self.cursor;
+
         match action {
             Action::Up if 0 < cursor.y => cursor.y -= 1,
             Action::Down if cursor.y + 1 < buffer.rows() => cursor.y += 1,
@@ -243,31 +234,22 @@ impl Editor {
             }
         };
 
-        let mut scroll = 0;
-
-        if self.offset != offset {
-            //redraw = true;
-            scroll = offset as isize - self.offset as isize;
-        }
-        if scroll > 0 {
-            redraw = true;
-        }
-        if scroll < 0 && offset == 0 {
+        if offset > self.offset {
             redraw = true;
         }
 
-        self.status = format!("offset={:?}, scroll={:?}", offset, scroll);
+        self.status = Some(format!(
+            "offset={:?}, self.offset={:?}",
+            offset, self.offset
+        ));
 
         if redraw {
             self.output.clear();
             let mut pc = Point::new(0, 0);
-            'rows: for line in self.buffer.line.iter().skip(offset) {
+            'rows: for line in buffer.line.iter().skip(offset) {
                 let mut eol = 0;
-                'cols: for (i, (byte, char)) in line.span().enumerate() {
-                    // br or eof
-                    if i + 1 == line.span.len() {
-                        break 'cols;
-                    }
+                // before br or eof
+                for (byte, char) in line.span().take(line.span.len() - 1) {
                     pc.x += char.len();
                     if pc.x >= screen.width {
                         pc.x = 0;
@@ -286,41 +268,56 @@ impl Editor {
                 }
                 self.output.extend(b"\r\n");
             }
-        } else if scroll < 0 {
-            self.output.clear();
-            let line = &buffer.line[offset - scroll.unsigned_abs()];
-            self.output.extend(&line.data[..line.eolb()]);
-            self.output.extend(b"\r\n");
-        }
-
-        self.offset = offset;
-        self.cursor = cursor;
-
-        if redraw {
             execute!(
                 stdout(),
                 Hide,
                 MoveTo(0, 0),
                 Clear(ClearType::All),
                 Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
-                MoveTo(0, screen.height as u16 - 1),
-                Print(&self.status),
                 MoveTo(marker.x as _, marker.y as _),
                 Show,
             )?;
-        } else if scroll > 0 {
-            execute!(stdout(), ScrollUp(scroll as _),)?;
-        } else if scroll < 0 {
+        } else if offset < self.offset {
+            self.output.clear();
+            let line = &buffer.line[offset];
+            let mut pc = Point::new(0, 0);
+            let mut eol = 0;
+            // before br or eof
+            for (byte, char) in line.span().take(line.span.len() - 1) {
+                pc.x += char.len();
+                if pc.x >= screen.width {
+                    pc.x = 0;
+                    pc.y += 1;
+                }
+                eol = byte.end;
+            }
+            self.output.extend(&line.data[..eol]);
+            pc.y += 1;
+            self.output.extend(b"\r\n");
+
             execute!(
                 stdout(),
-                ScrollDown(scroll.unsigned_abs() as _),
+                ScrollDown(pc.y as _),
                 Print(unsafe { std::str::from_utf8_unchecked(&self.output) }),
                 MoveTo(marker.x as _, marker.y as _),
                 Show,
             )?;
         } else {
-            execute!(stdout(), MoveTo(marker.x as _, marker.y as _),)?;
+            execute!(stdout(), MoveTo(marker.x as _, marker.y as _))?;
         }
+
+        if let Some(status) = &self.status {
+            execute!(
+                stdout(),
+                SavePosition,
+                MoveTo(0, screen.height as u16 - 1),
+                Print(&status),
+                RestorePosition,
+            )?;
+        }
+
+        self.offset = offset;
+        self.cursor = cursor;
 
         Ok(())
     }
